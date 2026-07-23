@@ -1,0 +1,22 @@
+# --- Stage 1: Build the Vite app with Bun ---
+FROM oven/bun:1.3.14-debian AS builder
+WORKDIR /app
+
+# Copy dependency manifests first to leverage caching
+COPY package.json bun.lock ./
+RUN bun install
+
+# Copy source code and build
+COPY . .
+RUN bun run build
+
+# --- Stage 2: Serve with Nginx ---
+FROM nginx:alpine
+
+# Copy built static assets from the builder stage to Nginx public folder
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Expose default HTTP port
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
