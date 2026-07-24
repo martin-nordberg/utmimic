@@ -14,8 +14,14 @@ export default defineConfig({
 				{
 					label: 'Architecture',
 					items: [
-						// Each item here is one entry in the navigation menu.
 						{ label: 'Overview', slug: 'architecture/overview' },
+					],
+				},
+				{
+					label: 'Components',
+					items: [
+						{ label: 'Database', slug: 'modules/database' },
+						{ label: 'Documentation', slug: 'modules/documentation' },
 					],
 				},
 				{
