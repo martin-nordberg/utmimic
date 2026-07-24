@@ -14,6 +14,8 @@ The container is built from [`timescale/timescaledb-ha`](https://github.com/time
 
 Following the module convention in the root `CLAUDE.md`, this module gets its own `database/dockerfile` and `database/build-docker.sh`, pushing to `mnserver.internal:5000/utmimic-database:latest`. Since the base image already ships Postgres/TimescaleDB/PostGIS, `database/dockerfile` doesn't need a multi-stage build — it starts `FROM timescale/timescaledb-ha:pg17` and only adds the extension bootstrap script described below.
 
+Deployment onto the Kubuntu server is a separate `database/run-docker.sh` script, run there rather than in local dev. It pulls the pushed image, ensures the persistent volume exists, replaces any existing container of the same name (data lives in the volume, not the container), and starts the new one with `--restart unless-stopped`.
+
 ## Data persistence
 
 Data persists in a named Docker volume, `utmimic-database-data`, mounted into the container.
@@ -29,7 +31,7 @@ The image hardcodes the `postgres` user as UID/GID `1000:1000`; Docker-managed n
 
 ## Configuration and credentials
 
-Credentials are supplied via plain environment variables (`POSTGRES_PASSWORD`, and `POSTGRES_USER`/`POSTGRES_DB` if a non-default user or database is needed), passed at `docker run` time or via an env file kept out of version control. This is sufficient for the project's current early stage; revisit if/when the deployment needs tighter secret handling (e.g. Docker secrets).
+Credentials are supplied via plain environment variables (`POSTGRES_PASSWORD`, and `POSTGRES_USER`/`POSTGRES_DB` if a non-default user or database is needed), passed at `docker run` time or via an env file kept out of version control. `database/run-docker.sh` looks for a `database/.env` file (gitignored) alongside itself and sources it if present, so credentials never need to be typed on the command line on the server. This is sufficient for the project's current early stage; revisit if/when the deployment needs tighter secret handling (e.g. Docker secrets).
 
 ## Networking
 
