@@ -1,0 +1,8 @@
+# --- TimescaleDB (PostgreSQL 17) with PostGIS ---
+FROM timescale/timescaledb-ha:pg17
+
+# Bootstrap extensions and initial schemas on first startup.
+# Runs automatically via the base image's docker-entrypoint-initdb.d mechanism.
+COPY init-extensions-and-schemas.sql /docker-entrypoint-initdb.d/10-init-extensions-and-schemas.sql
+
+EXPOSE 5432
