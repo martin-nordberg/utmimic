@@ -18,3 +18,4 @@ The diagram below shows the overall architecture of UTMimic. TODO ...
 * [Sensor Array Simulator](/modules/sensor_array_simulator/)
 * [Weather Service](/modules/weather_service/)
 * [Drone Registrations Service](/modules/drone_registrations_service/)
+* [Flight Authorizations Service](/modules/flight_authorizations_service/)
