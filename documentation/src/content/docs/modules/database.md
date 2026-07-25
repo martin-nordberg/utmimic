@@ -50,18 +50,22 @@ This is run once via a script dropped into the image's `/docker-entrypoint-initd
 
 ## Schemas
 
-Three independent schemas are planned, one per functional area:
+Five independent schemas are planned, one per functional area:
 
 | Schema | Purpose |
 | --- | --- |
 | `sensor_flight_log` | Sensor Flight Log |
 | `live_flight_log` | Live Flight Log |
 | `flight_authorizations` | Flight Authorizations |
+| `drone_registrations` | Drone Registrations |
+| `weather` | Weather |
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS sensor_flight_log;
 CREATE SCHEMA IF NOT EXISTS live_flight_log;
 CREATE SCHEMA IF NOT EXISTS flight_authorizations;
+CREATE SCHEMA IF NOT EXISTS drone_registrations;
+CREATE SCHEMA IF NOT EXISTS weather;
 ```
 
 No tables exist within them yet — table design is deferred to [Migrations](#migrations) below.
