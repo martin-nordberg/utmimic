@@ -10,6 +10,7 @@ utmimic is an early-stage project for tinkering with drone flight software ideas
 - `documentation/` — an Astro + Starlight documentation site (the only buildable application code in the repo today). It has its own `documentation/CLAUDE.md` and `documentation/AGENTS.md` (identical content) — read those when working inside that directory, since they take precedence for that subtree.
 - `sensor_flight_log_service/` — not yet created. A preliminary spec exists at `documentation/src/content/docs/modules/sensor_flight_log_service.md` for a planned Bun/Hono service that will own the `sensor_flight_log` database schema.
 - `live_flight_log_service/` — not yet created. A preliminary spec exists at `documentation/src/content/docs/modules/live_flight_log_service.md` for a planned Bun/Hono service, nearly identical to `sensor_flight_log_service`, that will own the `live_flight_log` database schema (simulated ground-truth drone positions, as opposed to the sensor service's coarser, imprecise "observed" positions).
+- `sensor_array_simulator/` — not yet created. A preliminary spec exists at `documentation/src/content/docs/modules/sensor_array_simulator.md` for a planned Go CLI that reads ground-truth positions from `live_flight_log_service` and writes simulated, imprecise sensor observations to `sensor_flight_log_service`. It owns no database schema of its own.
 
 Because most modules haven't been built out yet, do not assume architecture, modules, or conventions beyond what is described here — confirm with the user before making structural decisions.
 

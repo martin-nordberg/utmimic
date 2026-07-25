@@ -120,7 +120,7 @@
             <mxPoint x="660" y="680" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="sdbROdTNnoO2sIqxrxp0-26" parent="sdbROdTNnoO2sIqxrxp0-1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" value="Sensors Array Simulator" vertex="1">
+        <mxCell id="sdbROdTNnoO2sIqxrxp0-26" parent="sdbROdTNnoO2sIqxrxp0-1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;shadow=1;" value="Sensor Array Simulator" vertex="1">
           <mxGeometry height="80" width="120" x="-40" y="320" as="geometry" />
         </mxCell>
         <mxCell id="sdbROdTNnoO2sIqxrxp0-27" edge="1" parent="sdbROdTNnoO2sIqxrxp0-1" source="sdbROdTNnoO2sIqxrxp0-26" style="endArrow=classic;html=1;rounded=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=0;" target="sdbROdTNnoO2sIqxrxp0-17" value="">

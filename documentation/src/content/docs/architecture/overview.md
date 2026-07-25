@@ -15,3 +15,4 @@ The diagram below shows the overall architecture of UTMimic. TODO ...
 * [Database](/modules/database/)
 * [Sensor Flight Log Service](/modules/sensor_flight_log_service/)
 * [Live Flight Log Service](/modules/live_flight_log_service/)
+* [Sensor Array Simulator](/modules/sensor_array_simulator/)
