@@ -7,7 +7,9 @@ This module is a stand-alone web service that wraps the PostgreSQL `sensor_fligh
 It captures sensor-acquired data about flights in progress from their remote ID broadcasts, tagging each reading with the sensor that produced it.
 It stores time-series of latitude/longitude/altitude (ft) coordinates keyed by drone serial number and sensor.
 
-It also owns the registry of sensors themselves — the physical (or, for now, simulated) devices doing the observing: their location, sensing radius, name, notes, and online/offline status. [Sensor Array Simulator](/modules/sensor_array_simulator/) registers its simulated sensors here rather than configuring them locally, so there's a single source of truth for what sensors exist.
+It also owns the registry of sensors themselves — the physical (or, for now, simulated) devices doing the observing: their location, sensing radius, name, notes, and online/offline status. [Sensor Array Simulator](/modules/sensor_array_simulator/) discovers and runs whatever simulated sensors are registered here, rather than defining them itself, so there's a single source of truth for what sensors exist.
+
+Alongside the registry, each sensor may have a **profile**: an arbitrary, application-defined JSON document keyed by sensor ID. This service doesn't interpret the profile's contents — it's a place for whoever registers a sensor to store structured data specific to that sensor (e.g., for a simulated sensor, Sensor Array Simulator's simulation-tuning parameters) without this schema needing to change every time a new attribute is needed.
 
 It is the sole owner of the `sensor_flight_log` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
@@ -60,6 +62,28 @@ CREATE TABLE sensor_flight_log.sensors (
 
 Sensors are never hard-deleted (position reports reference them by ID) — a decommissioned sensor is just left `'offline'` indefinitely. `notes` is a free-text place to record that.
 
+### `sensor_profiles`
+
+At most one row per sensor, holding an arbitrary application-defined JSON document:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `sensor_id` | `text` | References `sensors.sensor_id`; primary key (one profile per sensor) |
+| `profile` | `jsonb` | Opaque to this service — whatever JSON the client wrote |
+| `created_at` | `timestamptz` | `default now()` |
+| `updated_at` | `timestamptz` | `default now()`, bumped on every replace |
+
+```sql
+CREATE TABLE sensor_flight_log.sensor_profiles (
+    sensor_id  text PRIMARY KEY REFERENCES sensor_flight_log.sensors (sensor_id),
+    profile    jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+`jsonb` (rather than `json`) is used since nothing depends on preserving the exact bytes/key order of what was written, and `jsonb` is cheaper to read back and supports indexing (e.g. GIN) if a future consumer ever needs to query into it — not needed yet, so no such index exists today.
+
 ### `position_reports`
 
 One row per sensor-observed position:
@@ -110,6 +134,9 @@ Preliminary route sketch, mounted under `/api/v1`:
 | `GET` | `/sensors` | List all sensors |
 | `GET` | `/sensors/{sensorId}` | Get one sensor |
 | `PATCH` | `/sensors/{sensorId}` | Update a sensor's name, notes, location, radius, and/or status |
+| `PUT` | `/sensors/{sensorId}/profile` | Create or replace a sensor's profile (arbitrary JSON) |
+| `GET` | `/sensors/{sensorId}/profile` | Fetch a sensor's profile |
+| `DELETE` | `/sensors/{sensorId}/profile` | Remove a sensor's profile |
 | `POST` | `/drones/{serial}/positions` | Ingest one or more position reports for a drone |
 | `GET` | `/drones/{serial}/positions` | Query a drone's position history, filtered by time range |
 | `GET` | `/drones/{serial}/positions/latest` | Convenience lookup of the most recent known position |
@@ -130,6 +157,18 @@ Preliminary route sketch, mounted under `/api/v1`:
 ```
 
 `PATCH /sensors/{sensorId}` accepts a partial body with any of `name`, `notes`, `latitude`, `longitude`, `sensingRadiusMeters`, `status` — this is how a sensor (or whatever manages it, e.g. Sensor Array Simulator) flips itself online/offline.
+
+`PUT /sensors/{sensorId}/profile` replaces the sensor's whole profile with the given JSON body — no partial update, since the contents are opaque to this service. For a sensor that [Sensor Array Simulator](/modules/sensor_array_simulator/) is meant to run, whoever registers that sensor would `PUT` its simulation-tuning parameters here (the simulator only reads them):
+
+```json
+{
+  "pollIntervalMs": { "min": 2000, "max": 5000 },
+  "latencyMs": { "min": 200, "max": 1500 },
+  "positionErrorStdDev": { "metersHorizontal": 15, "feetVertical": 20 }
+}
+```
+
+Any JSON object is accepted (validated as `z.record(z.string(), z.unknown())` or similar — just "is this a JSON object," not any particular shape); `404` if `sensorId` doesn't reference a known sensor. `GET` on a sensor with no profile set returns `404`.
 
 `POST /drones/{serial}/positions` accepts a single report or an array of reports (a remote ID receiver may batch several broadcasts per request):
 
@@ -152,7 +191,7 @@ All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the
 
 Migrations are TypeScript files owned by this module, not a separate CLI tool — chosen because this service is the schema's only client, so there's no need for a language-agnostic or multi-consumer migration tool.
 
-- Migration files live in `migrations/`, named `0001_create_sensors.ts`, `0002_create_position_reports.ts`, etc. (`sensors` first, since `position_reports.sensor_id` references it), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
+- Migration files live in `migrations/`, named `0001_create_sensors.ts`, `0002_create_sensor_profiles.ts`, `0003_create_position_reports.ts`, etc. (`sensors` first, since both `sensor_profiles.sensor_id` and `position_reports.sensor_id` reference it), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `sensor_flight_log.schema_migrations` table tracks which migration filenames have been applied and when.
 - A small runner script (`bun run migrate`) reads `migrations/` in order, compares against `schema_migrations`, and applies any pending ones inside a transaction.
 - The container runs migrations on startup, before the HTTP server begins listening — acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
@@ -196,3 +235,5 @@ Unit tests use `Bun.test`. Integration tests against a real Postgres instance (r
 - Batch size limits on `POST /drones/{serial}/positions`.
 - Sensor status is explicit-only for now (no heartbeat/staleness detection) — a sensor that crashes without calling `PATCH .../status: offline` will show as `online` indefinitely. Revisit with a `last_seen_at` column and timeout logic if that turns out to matter.
 - Exact HTTP status code for ingest against an unknown `sensor_id` (`404` vs `422`).
+- Any size limit on `sensor_profiles.profile` documents (unbounded JSON blobs from arbitrary clients).
+- Whether `sensor_profiles` should cascade-delete if a sensor is ever removed — moot for now since sensors are never hard-deleted (see above).
