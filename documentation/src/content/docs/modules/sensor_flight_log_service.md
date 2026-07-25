@@ -4,8 +4,10 @@ description: Web service to read and write sensor-acquired flight data
 ---
 
 This module is a stand-alone web service that wraps the PostgreSQL `sensor_flight_log` schema (see [Database](/modules/database/)).
-It captures sensor-acquired data about flights in progress from their remote ID broadcasts.
-It stores time-series of latitude/longitude/altitude (ft) coordinates keyed by drone serial number.
+It captures sensor-acquired data about flights in progress from their remote ID broadcasts, tagging each reading with the sensor that produced it.
+It stores time-series of latitude/longitude/altitude (ft) coordinates keyed by drone serial number and sensor.
+
+It also owns the registry of sensors themselves — the physical (or, for now, simulated) devices doing the observing: their location, sensing radius, name, notes, and online/offline status. [Sensor Array Simulator](/modules/sensor_array_simulator/) registers its simulated sensors here rather than configuring them locally, so there's a single source of truth for what sensors exist.
 
 It is the sole owner of the `sensor_flight_log` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
@@ -26,11 +28,46 @@ It is the sole owner of the `sensor_flight_log` schema: no other module reads or
 
 Preliminary — no tables exist yet in `sensor_flight_log`; this is a starting design, not a final one.
 
-A single table, `sensor_flight_log.position_reports`, holds one row per sensor-observed position:
+### `sensors`
+
+One row per sensor (physical or simulated):
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `sensor_id` | `text` | Client-generated cuid2 (registrant chooses its own ID, same convention as `report_id` below) |
+| `name` | `text` | Human-readable name |
+| `notes` | `text` | Free-form, nullable |
+| `latitude` | `double precision` | Degrees |
+| `longitude` | `double precision` | Degrees |
+| `sensing_radius_meters` | `double precision` | Coverage radius |
+| `status` | `text` | `'online'` or `'offline'`, set explicitly via the API (no heartbeat/timeout logic — see [Open questions](#open-questions)) |
+| `created_at` | `timestamptz` | `default now()` |
+| `updated_at` | `timestamptz` | `default now()`, bumped on every update |
+
+```sql
+CREATE TABLE sensor_flight_log.sensors (
+    sensor_id             text PRIMARY KEY,
+    name                  text NOT NULL,
+    notes                 text,
+    latitude              double precision NOT NULL,
+    longitude             double precision NOT NULL,
+    sensing_radius_meters double precision NOT NULL,
+    status                text NOT NULL DEFAULT 'offline' CHECK (status IN ('online', 'offline')),
+    created_at            timestamptz NOT NULL DEFAULT now(),
+    updated_at            timestamptz NOT NULL DEFAULT now()
+);
+```
+
+Sensors are never hard-deleted (position reports reference them by ID) — a decommissioned sensor is just left `'offline'` indefinitely. `notes` is a free-text place to record that.
+
+### `position_reports`
+
+One row per sensor-observed position:
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `report_id` | `text` | Client-generated cuid2, used as an idempotency key (see below) |
+| `sensor_id` | `text` | References `sensors.sensor_id` — which sensor produced this reading |
 | `drone_serial_number` | `text` | Remote ID serial number of the reporting drone |
 | `recorded_at` | `timestamptz` | When the position was observed (from the remote ID broadcast) |
 | `latitude` | `double precision` | Degrees |
@@ -41,6 +78,7 @@ A single table, `sensor_flight_log.position_reports`, holds one row per sensor-o
 ```sql
 CREATE TABLE sensor_flight_log.position_reports (
     report_id           text PRIMARY KEY,
+    sensor_id           text NOT NULL REFERENCES sensor_flight_log.sensors (sensor_id),
     drone_serial_number text NOT NULL,
     recorded_at         timestamptz NOT NULL,
     latitude            double precision NOT NULL,
@@ -52,13 +90,15 @@ CREATE TABLE sensor_flight_log.position_reports (
 SELECT create_hypertable('sensor_flight_log.position_reports', by_range('recorded_at'));
 
 CREATE INDEX ON sensor_flight_log.position_reports (drone_serial_number, recorded_at DESC);
+CREATE INDEX ON sensor_flight_log.position_reports (sensor_id, recorded_at DESC);
 ```
 
 Notes:
 
 - The table is a TimescaleDB hypertable partitioned on `recorded_at`, since this is pure time-series data.
-- `latitude`/`longitude` are plain columns for now rather than a PostGIS `geography(Point, 4326)` column — no spatial queries (radius search, geofencing, etc.) are planned yet, so the extra type isn't justified. Revisit if/when this service or a consumer needs spatial querying.
+- `latitude`/`longitude` are plain columns for now rather than a PostGIS `geography(Point, 4326)` column — no spatial queries (radius search, geofencing, etc.) are planned yet, so the extra type isn't justified. Revisit if/when this service or a consumer needs spatial querying. This applies to both tables, including `sensors.latitude`/`longitude`.
 - `report_id` lets ingest clients retry a submission (e.g. after a network timeout) without creating duplicate rows — the insert becomes `ON CONFLICT (report_id) DO NOTHING`.
+- Ingest is rejected (`404`/`422` — exact code TBD) if `sensor_id` doesn't reference a known sensor; this service does not auto-create sensors from ingest traffic.
 
 ## API
 
@@ -66,16 +106,37 @@ Preliminary route sketch, mounted under `/api/v1`:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `POST` | `/sensors` | Register a new sensor |
+| `GET` | `/sensors` | List all sensors |
+| `GET` | `/sensors/{sensorId}` | Get one sensor |
+| `PATCH` | `/sensors/{sensorId}` | Update a sensor's name, notes, location, radius, and/or status |
 | `POST` | `/drones/{serial}/positions` | Ingest one or more position reports for a drone |
 | `GET` | `/drones/{serial}/positions` | Query a drone's position history, filtered by time range |
 | `GET` | `/drones/{serial}/positions/latest` | Convenience lookup of the most recent known position |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
+
+`POST /sensors` registers a sensor with a client-chosen ID (see [Data model](#data-model)):
+
+```json
+{
+  "sensorId": "clh6z8h1x0000qzrm...",
+  "name": "West Ridge",
+  "notes": "Mast-mounted, north side of the ridge",
+  "latitude": 47.6300,
+  "longitude": -122.3600,
+  "sensingRadiusMeters": 5000,
+  "status": "online"
+}
+```
+
+`PATCH /sensors/{sensorId}` accepts a partial body with any of `name`, `notes`, `latitude`, `longitude`, `sensingRadiusMeters`, `status` — this is how a sensor (or whatever manages it, e.g. Sensor Array Simulator) flips itself online/offline.
 
 `POST /drones/{serial}/positions` accepts a single report or an array of reports (a remote ID receiver may batch several broadcasts per request):
 
 ```json
 {
   "reportId": "clh6z9k9x0000qzrm...",
+  "sensorId": "clh6z8h1x0000qzrm...",
   "recordedAt": "2026-07-25T14:03:11.000Z",
   "latitude": 47.6205,
   "longitude": -122.3493,
@@ -83,7 +144,7 @@ Preliminary route sketch, mounted under `/api/v1`:
 }
 ```
 
-`GET /drones/{serial}/positions` supports `from`/`to` (ISO 8601) and `limit` query parameters, returning reports ordered by `recordedAt` ascending.
+`GET /drones/{serial}/positions` supports `from`/`to` (ISO 8601) and `limit` query parameters, returning reports (including which `sensorId` produced each one) ordered by `recordedAt` ascending.
 
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
 
@@ -91,7 +152,7 @@ All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the
 
 Migrations are TypeScript files owned by this module, not a separate CLI tool — chosen because this service is the schema's only client, so there's no need for a language-agnostic or multi-consumer migration tool.
 
-- Migration files live in `migrations/`, named `0001_create_position_reports.ts`, `0002_...ts`, etc., each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
+- Migration files live in `migrations/`, named `0001_create_sensors.ts`, `0002_create_position_reports.ts`, etc. (`sensors` first, since `position_reports.sensor_id` references it), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `sensor_flight_log.schema_migrations` table tracks which migration filenames have been applied and when.
 - A small runner script (`bun run migrate`) reads `migrations/` in order, compares against `schema_migrations`, and applies any pending ones inside a transaction.
 - The container runs migrations on startup, before the HTTP server begins listening — acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
@@ -130,6 +191,8 @@ Unit tests use `Bun.test`. Integration tests against a real Postgres instance (r
 ## Open questions
 
 - Service listen port default.
-- Authentication/authorization on the ingest endpoint (currently unspecified — anyone who can reach the service can write position reports).
+- Authentication/authorization on the ingest and sensor-registry endpoints (currently unspecified — anyone who can reach the service can write position reports or register/modify sensors).
 - Retention/archival policy for old position reports (TimescaleDB compression/retention policies are a natural fit once volume matters).
 - Batch size limits on `POST /drones/{serial}/positions`.
+- Sensor status is explicit-only for now (no heartbeat/staleness detection) — a sensor that crashes without calling `PATCH .../status: offline` will show as `online` indefinitely. Revisit with a `last_seen_at` column and timeout logic if that turns out to matter.
+- Exact HTTP status code for ingest against an unknown `sensor_id` (`404` vs `422`).
