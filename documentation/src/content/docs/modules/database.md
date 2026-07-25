@@ -54,13 +54,13 @@ Three independent schemas are planned, one per functional area:
 
 | Schema | Purpose |
 | --- | --- |
-| `sensor_flight_data` | Sensor Flight Data |
-| `live_flight_data` | Live Flight Data |
+| `sensor_flight_log` | Sensor Flight Log |
+| `live_flight_log` | Live Flight Log |
 | `flight_authorizations` | Flight Authorizations |
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS sensor_flight_data;
-CREATE SCHEMA IF NOT EXISTS live_flight_data;
+CREATE SCHEMA IF NOT EXISTS sensor_flight_log;
+CREATE SCHEMA IF NOT EXISTS live_flight_log;
 CREATE SCHEMA IF NOT EXISTS flight_authorizations;
 ```
 
