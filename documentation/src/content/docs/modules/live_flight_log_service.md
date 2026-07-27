@@ -110,7 +110,7 @@ Supplied via environment variables:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string, e.g. `postgres://user:pass@<host>:5432/<db>` pointing at the [Database](/modules/database/) module |
-| `PORT` | no | HTTP listen port for the service (default TBD) |
+| `PORT` | no | HTTP listen port for the service, default `8003` |
 | `LOG_LEVEL` | no | Pino log level, e.g. `info`, `debug` |
 
 As with the database module, secrets are kept out of version control and supplied via environment or a gitignored `.env` file sourced by a future `run-docker.sh`.
@@ -128,11 +128,10 @@ A `run-docker.sh` for the Kubuntu deployment host, analogous to `database/run-do
 
 ## Testing
 
-Unit tests use `Bun.test`. Integration tests against a real Postgres instance (rather than mocks) are intended, matching the project's general preference for testing against real dependencies — the exact test-database strategy (ephemeral container, shared dev instance, etc.) is a TODO once there's code to test.
+Unit tests use `Bun.test`. Integration tests run against the shared dev/test Postgres instance described in [Database](/modules/database/#development-and-test-instance) (port `5431` on the Kubuntu server) rather than mocks, matching the project's general preference for testing against real dependencies. Test setup drops and re-runs this service's own migrations against its schema at the start of a run, rather than a separate wipe mechanism.
 
 ## Open questions
 
-- Service listen port default.
 - Authentication/authorization on the ingest endpoint (currently unspecified — anyone who can reach the service can write position reports).
 - Retention/archival policy for old position reports (TimescaleDB compression/retention policies are a natural fit once volume matters).
 - Batch size limits on `POST /drones/{serial}/positions`.

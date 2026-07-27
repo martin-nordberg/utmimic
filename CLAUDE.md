@@ -14,8 +14,24 @@ utmimic is an early-stage project for tinkering with drone flight software ideas
 - `weather_service/` — not yet created. A preliminary spec exists at `documentation/src/content/docs/modules/weather_service.md` for a planned Bun/Hono service, same shape as the flight-log services, that will own the `weather` database schema (moving visibility and wind polygons). Its data producer (a weather simulator) isn't designed yet.
 - `drone_registrations_service/` — not yet created. A preliminary spec exists at `documentation/src/content/docs/modules/drone_registrations_service.md` for a planned Bun/Hono service, same stack as the other services, that will own the `drone_registrations` database schema (owners, their pilots, and drone registration records). Ordinary relational CRUD data, not a time series — no TimescaleDB/PostGIS use here.
 - `flight_authorizations_service/` — not yet created. A preliminary spec exists at `documentation/src/content/docs/modules/flight_authorizations_service.md` for a planned Bun/Hono service, same stack, that will own the `flight_authorizations` database schema (airspace authorizations and flight plans). Uses PostGIS geometry like the weather service; owner/pilot/registration IDs from `drone_registrations_service` are stored as plain columns (not real foreign keys, since it's a different service's schema) but validated synchronously against that service's API at write time.
+- `flight_area_dashboard_web_server/` — not yet created, no spec doc yet. So far it only appears as a box in the architecture diagram (`documentation/_diagrams/utmimic-architecture.drawio`). Assigned port `8081` (see [Port assignments](#port-assignments)).
+- `flight_area_dashboard_web_client/` — not yet created, no spec doc yet. So far it only appears as a box in the architecture diagram. Assigned port `8080` (see [Port assignments](#port-assignments)).
 
 Because most modules haven't been built out yet, do not assume architecture, modules, or conventions beyond what is described here — confirm with the user before making structural decisions.
+
+## Port assignments
+
+| Module | Port |
+| --- | --- |
+| Weather Service | `8000` |
+| Drone Registrations Service | `8001` |
+| Flight Authorizations Service | `8002` |
+| Live Flight Log Service | `8003` |
+| Sensor Flight Log Service | `8004` |
+| Flight Area Dashboard Web Client | `8080` |
+| Flight Area Dashboard Web Server | `8081` |
+
+Other modules (so far) are CLI-only (`sensor_array_simulator/`) or have their own established ports documented in their own module doc (`database/` on `5432`, plus a second dev/test Postgres instance on `5431` for integration testing — see [Development and test instance](/modules/database/#development-and-test-instance); `documentation/` served over HTTPS `443` in its container — see their respective docs under `documentation/src/content/docs/modules/`).
 
 ## Working in `documentation/`
 

@@ -37,6 +37,12 @@ Credentials are supplied via plain environment variables (`POSTGRES_PASSWORD`, a
 
 The container publishes PostgreSQL's default port, `5432`, on the Kubuntu deployment host. Other UTMimic modules connect to it as `<host>:5432` rather than over a Docker-internal network, since not every module is guaranteed to be containerized on the same host/network.
 
+## Development and test instance
+
+Alongside the primary container (`utmimic-database`, port `5432`), a second instance runs on the same Kubuntu server for local development and each web service's integration tests: `database/run-docker-dev.sh`, a sibling script to `run-docker.sh`, starts it as a separate container (`utmimic-database-dev`) on port `5431`. It reuses the same image and the same `database/.env` credentials file as the primary instance, but — unlike the primary instance — has no persistent volume at all: its data lives only in the container's writable layer, so it's fully ephemeral and gone as soon as the container is recreated or otherwise lost. That's intentional, not an oversight: this instance exists to be reset, so there's no data worth persisting across restarts in the first place.
+
+The point of a separate instance is to give integration tests a real Postgres to run against without risking whatever's in the primary one. A service's test setup is expected to drop and re-migrate its own schema (via that service's own migration runner, not a separate wipe mechanism) at the start of a test run — safe here, but not something the primary instance's schemas should ever have done to them. This is one shared instance rather than one-per-test-run, so concurrent test runs against it (from more than one service, or more than one person) can race; acceptable for now given the project's current single-developer stage, revisit if that stops being true.
+
 ## Extensions
 
 No tables exist yet, so the only initialization step is enabling the two extensions on first startup:
