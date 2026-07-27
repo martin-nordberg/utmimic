@@ -1,10 +1,10 @@
 import { app } from './app';
-
-const port = 8004;
+import { config } from './config';
+import { logger } from './logger';
 
 Bun.serve({
-  port,
+  port: config.PORT,
   fetch: app.fetch,
 });
 
-console.log(`sensor_flight_log_service listening on port ${port}`);
+logger.info(`sensor_flight_log_service listening on port ${config.PORT}`);
