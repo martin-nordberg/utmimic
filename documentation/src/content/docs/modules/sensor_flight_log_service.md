@@ -201,7 +201,7 @@ Migrations are TypeScript files owned by this module, not a separate CLI tool â€
 
 - Migration files live in `migrations/`, named `0001_create_sensors.ts`, `0002_create_sensor_profiles.ts`, `0003_create_position_reports.ts`, etc. (`sensors` first, since both `sensor_profiles.sensor_id` and `position_reports.sensor_id` reference it), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `sensor_flight_log.schema_migrations` table tracks which migration filenames have been applied and when.
-- A small runner script (`bun run migrate`) reads `migrations/` in order, compares against `schema_migrations`, and applies any pending ones inside a transaction.
+- A small runner script (`bun run migrate`) statically imports each migration module and applies any not yet recorded in `schema_migrations`, in order, inside a transaction. The runner deliberately does *not* discover migrations by scanning the `migrations/` directory at runtime: a `bun build --compile` executable has no such directory on disk and can't resolve a dynamic, path-computed `import()` at bundle time, so a directory-scanning runner would crash on startup once packaged (confirmed by running the compiled binary standalone during a code review). Adding a migration means adding both the file and a one-line registration in `migrations/run.ts`.
 - The container runs migrations on startup, before the HTTP server begins listening â€” acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
 
 ## Logging

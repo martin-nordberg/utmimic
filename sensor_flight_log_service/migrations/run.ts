@@ -1,13 +1,22 @@
-import { readdir } from 'node:fs/promises';
-import path from 'node:path';
 import { sql } from '../src/db';
 import { logger } from '../src/logger';
-
-const MIGRATIONS_DIR = import.meta.dir;
+import * as m0001CreateSensors from './0001_create_sensors';
+import * as m0002CreateSensorProfiles from './0002_create_sensor_profiles';
+import * as m0003CreatePositionReports from './0003_create_position_reports';
 
 interface Migration {
   up(sql: Bun.SQL): Promise<unknown>;
 }
+
+// Statically imported and registered by hand, rather than discovered via readdir/dynamic
+// import: a runtime filesystem scan can't be resolved by bun build --compile, since the
+// compiled binary has no migrations/ directory on disk and a computed import() path can't
+// be statically bundled. Add new migrations to this list, in order, alongside the file.
+const migrations: { filename: string; module: Migration }[] = [
+  { filename: '0001_create_sensors.ts', module: m0001CreateSensors },
+  { filename: '0002_create_sensor_profiles.ts', module: m0002CreateSensorProfiles },
+  { filename: '0003_create_position_reports.ts', module: m0003CreatePositionReports },
+];
 
 export async function runMigrations(): Promise<void> {
   await sql`
@@ -23,15 +32,11 @@ export async function runMigrations(): Promise<void> {
     ),
   );
 
-  const pending = (await readdir(MIGRATIONS_DIR))
-    .filter((filename) => filename.endsWith('.ts') && filename !== 'run.ts' && !applied.has(filename))
-    .sort();
-
-  for (const filename of pending) {
-    const migration: Migration = await import(path.join(MIGRATIONS_DIR, filename));
+  for (const { filename, module } of migrations) {
+    if (applied.has(filename)) continue;
 
     await sql.begin(async (tx) => {
-      await migration.up(tx);
+      await module.up(tx);
       await tx`INSERT INTO sensor_flight_log.schema_migrations (filename) VALUES (${filename})`;
     });
 
