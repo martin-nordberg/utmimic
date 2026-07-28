@@ -15,7 +15,7 @@ import {
 
 export const positionsRouter = new OpenAPIHono();
 
-function normalizeToArray<T>(body: T | T[]): T[] {
+export function normalizeToArray<T>(body: T | T[]): T[] {
   return Array.isArray(body) ? body : [body];
 }
 

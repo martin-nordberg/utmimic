@@ -11,6 +11,8 @@ The spec's [Open questions](/modules/sensor_flight_log_service/#open-questions) 
 
 - **Integration test strategy against real Postgres.** The root `CLAUDE.md` rules out `docker run` in local WSL2 dev, so integration tests can't spin up an ephemeral Postgres container the way a Testcontainers-style setup normally would. The realistic options are: (a) point `DATABASE_URL` at the already-running [Database](/modules/database/) module (dev instance on the Kubuntu host, or a local non-Docker Postgres install) and run tests against a disposable schema, or (b) install Postgres directly in the dev environment via a package manager rather than Docker. Pick one before Phase 9 rather than while writing the first integration test.
 
+  **Resolved: option (a).** `.env`'s `DATABASE_URL` has pointed at the dev/test instance (`mnserver.internal:5431`) since Phase 3, and Phase 9's integration test (`src/integration.test.ts`) drops and recreates the `sensor_flight_log` schema and re-runs migrations in a `beforeAll` before exercising routes end-to-end (see `src/test-support/reset-db.ts`).
+
 Everything else in the open-questions list (retention policy, batch size limits, sensor heartbeat/staleness, profile size limits, profile cascade-delete) is fine to leave as a TODO comment in code and revisit later — none of it blocks a first working version.
 
 ## Phase 1 — Project scaffolding
