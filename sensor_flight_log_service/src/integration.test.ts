@@ -154,6 +154,16 @@ describe('sensor flight log service (end-to-end)', () => {
     expect(res.status).toBe(404);
   });
 
+  test('accepts an empty array ingest as a no-op', async () => {
+    const res = await app.request(`/api/v1/drones/${serial}/positions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([]),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual([]);
+  });
+
   test('404s for /latest on a drone with no positions', async () => {
     const res = await app.request('/api/v1/drones/NO-SUCH-DRONE/positions/latest');
     expect(res.status).toBe(404);

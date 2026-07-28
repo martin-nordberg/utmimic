@@ -39,6 +39,10 @@ positionsRouter.openapi(ingestRoute, async (c) => {
   const { serial } = c.req.valid('param');
   const reports = normalizeToArray(c.req.valid('json'));
 
+  if (reports.length === 0) {
+    return c.json([], 201);
+  }
+
   const missingSensorIds = await findMissingSensorIds(reports.map((report) => report.sensorId));
   if (missingSensorIds.length > 0) {
     return c.json({ message: `Unknown sensorId(s): ${missingSensorIds.join(', ')}` }, 404);
