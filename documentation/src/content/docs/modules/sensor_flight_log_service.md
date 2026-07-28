@@ -130,7 +130,7 @@ Notes:
 
 ## API
 
-Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix:
+Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, discovered during a code review.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

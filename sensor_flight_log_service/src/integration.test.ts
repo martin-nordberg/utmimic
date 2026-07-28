@@ -19,6 +19,47 @@ afterAll(async () => {
 });
 
 describe('sensor flight log service (end-to-end)', () => {
+  test('rejects a body-carrying request with the wrong Content-Type', async () => {
+    const res = await app.request('/api/v1/sensors', {
+      method: 'POST',
+      body: JSON.stringify({
+        sensorId: 'wrong-content-type-sensor',
+        name: 'Should be rejected',
+        latitude: 1,
+        longitude: 1,
+        sensingRadiusMeters: 1,
+      }),
+    });
+    expect(res.status).toBe(415);
+
+    const getRes = await app.request('/api/v1/sensors/wrong-content-type-sensor');
+    expect(getRes.status).toBe(404);
+  });
+
+  test('rejects a profile PUT with the wrong Content-Type rather than silently storing an empty profile', async () => {
+    const setupRes = await app.request('/api/v1/sensors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sensorId: 'wrong-content-type-profile-sensor',
+        name: 'Profile Content-Type Guard',
+        latitude: 1,
+        longitude: 1,
+        sensingRadiusMeters: 1,
+      }),
+    });
+    expect(setupRes.status).toBe(201);
+
+    const putRes = await app.request('/api/v1/sensors/wrong-content-type-profile-sensor/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ a: 1 }),
+    });
+    expect(putRes.status).toBe(415);
+
+    const getRes = await app.request('/api/v1/sensors/wrong-content-type-profile-sensor/profile');
+    expect(getRes.status).toBe(404);
+  });
+
   test('validation failures return { message } like every other error, not the default ZodError shape', async () => {
     const res = await app.request('/api/v1/sensors', {
       method: 'POST',
