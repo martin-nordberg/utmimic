@@ -1,0 +1,37 @@
+import { z } from '@hono/zod-openapi';
+
+export const DroneSerialParamSchema = z.object({
+  serial: z.string().min(1).openapi({
+    param: { name: 'serial', in: 'path' },
+    example: 'FA1AAAAA00000001',
+  }),
+});
+
+const positionReportFields = {
+  reportId: z.string().min(1).openapi({ example: 'clh6z9k9x0000qzrm' }),
+  sensorId: z.string().min(1).openapi({ example: 'clh6z8h1x0000qzrm' }),
+  recordedAt: z.string().datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
+  latitude: z.number().openapi({ example: 47.6205 }),
+  longitude: z.number().openapi({ example: -122.3493 }),
+  altitudeFt: z.number().openapi({ example: 412.5 }),
+};
+
+export const CreatePositionReportSchema = z.object(positionReportFields).openapi('CreatePositionReport');
+
+export const CreatePositionReportsBodySchema = z
+  .union([CreatePositionReportSchema, z.array(CreatePositionReportSchema)])
+  .openapi('CreatePositionReportsBody');
+
+export const PositionReportSchema = z
+  .object({
+    ...positionReportFields,
+    droneSerialNumber: z.string().min(1).openapi({ example: 'FA1AAAAA00000001' }),
+    ingestedAt: z.string().datetime().openapi({ example: '2026-07-25T14:03:12.500Z' }),
+  })
+  .openapi('PositionReport');
+
+export const PositionQuerySchema = z.object({
+  from: z.string().datetime().optional().openapi({ example: '2026-07-25T00:00:00.000Z' }),
+  to: z.string().datetime().optional().openapi({ example: '2026-07-26T00:00:00.000Z' }),
+  limit: z.coerce.number().int().positive().optional().openapi({ example: 100 }),
+});

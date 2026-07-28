@@ -15,6 +15,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@hono/swagger-ui": "^0.6.1",
     "@hono/zod-openapi": "^1.5.1",
     "@paralleldrive/cuid2": "^3.3.0",
     "hono": "^4.12.32",
