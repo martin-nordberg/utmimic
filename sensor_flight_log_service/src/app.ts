@@ -1,6 +1,7 @@
 import { swaggerUI } from '@hono/swagger-ui';
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import { logger } from './logger';
+import { sensorsRouter } from './routes/sensors';
 
 export const app = new OpenAPIHono();
 
@@ -27,22 +28,4 @@ app.doc('/openapi.json', {
 
 app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
-// Proves the OpenAPIHono + Zod validation wiring works end-to-end; replaced by real routes in Phase 6.
-const echoRoute = createRoute({
-  method: 'get',
-  path: '/_openapi-check',
-  request: {
-    query: z.object({ echo: z.string().min(1).openapi({ example: 'hello' }) }),
-  },
-  responses: {
-    200: {
-      content: { 'application/json': { schema: z.object({ echo: z.string() }) } },
-      description: 'Echoes the query param back',
-    },
-  },
-});
-
-app.openapi(echoRoute, (c) => {
-  const { echo } = c.req.valid('query');
-  return c.json({ echo }, 200);
-});
+app.route('/api/v1/sensors', sensorsRouter);
