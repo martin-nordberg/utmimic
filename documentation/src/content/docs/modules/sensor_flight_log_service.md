@@ -30,7 +30,7 @@ See the [implementation plan](/plans/sensor_flight_log_service_plan/) for the or
 
 ## Data model
 
-Preliminary — no tables exist yet in `sensor_flight_log`; this is a starting design, not a final one.
+Implemented as described below (migrated and exercised end-to-end by this module's test suite — see [Testing](#testing)), with one deviation from the original design: `position_reports`' primary key, noted under that table below.
 
 ### `sensors`
 
@@ -130,23 +130,25 @@ Notes:
 
 ## API
 
-Preliminary route sketch, mounted under `/api/v1`:
+Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/sensors` | Register a new sensor |
-| `GET` | `/sensors` | List all sensors |
-| `GET` | `/sensors/{sensorId}` | Get one sensor |
-| `PATCH` | `/sensors/{sensorId}` | Update a sensor's name, notes, location, radius, and/or status |
-| `PUT` | `/sensors/{sensorId}/profile` | Create or replace a sensor's profile (arbitrary JSON) |
-| `GET` | `/sensors/{sensorId}/profile` | Fetch a sensor's profile |
-| `DELETE` | `/sensors/{sensorId}/profile` | Remove a sensor's profile |
-| `POST` | `/drones/{serial}/positions` | Ingest one or more position reports for a drone |
-| `GET` | `/drones/{serial}/positions` | Query a drone's position history, filtered by time range |
-| `GET` | `/drones/{serial}/positions/latest` | Convenience lookup of the most recent known position |
+| `POST` | `/api/v1/sensors` | Register a new sensor |
+| `GET` | `/api/v1/sensors` | List all sensors |
+| `GET` | `/api/v1/sensors/{sensorId}` | Get one sensor |
+| `PATCH` | `/api/v1/sensors/{sensorId}` | Update a sensor's name, notes, location, radius, and/or status |
+| `PUT` | `/api/v1/sensors/{sensorId}/profile` | Create or replace a sensor's profile (arbitrary JSON) |
+| `GET` | `/api/v1/sensors/{sensorId}/profile` | Fetch a sensor's profile |
+| `DELETE` | `/api/v1/sensors/{sensorId}/profile` | Remove a sensor's profile |
+| `POST` | `/api/v1/drones/{serial}/positions` | Ingest one or more position reports for a drone |
+| `GET` | `/api/v1/drones/{serial}/positions` | Query a drone's position history, filtered by time range |
+| `GET` | `/api/v1/drones/{serial}/positions/latest` | Convenience lookup of the most recent known position |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
+| `GET` | `/openapi.json` | Generated OpenAPI document |
+| `GET` | `/docs` | Swagger UI over `/openapi.json` |
 
-`POST /sensors` registers a sensor with a client-chosen ID (see [Data model](#data-model)):
+`POST /sensors` registers a sensor with a client-chosen ID (see [Data model](#data-model)), returning `201` with the created sensor, or `409` if `sensorId` already exists:
 
 ```json
 {
@@ -160,7 +162,7 @@ Preliminary route sketch, mounted under `/api/v1`:
 }
 ```
 
-`PATCH /sensors/{sensorId}` accepts a partial body with any of `name`, `notes`, `latitude`, `longitude`, `sensingRadiusMeters`, `status` — this is how a sensor (or whatever manages it, e.g. Sensor Array Simulator) flips itself online/offline.
+`PATCH /sensors/{sensorId}` accepts a partial body with any of `name`, `notes`, `latitude`, `longitude`, `sensingRadiusMeters`, `status` — this is how a sensor (or whatever manages it, e.g. Sensor Array Simulator) flips itself online/offline. Returns `200` with the updated sensor, or `404` if `sensorId` is unknown. Implemented as a `COALESCE`-based partial update: omitting a field leaves it unchanged, but there's currently no way to explicitly clear `notes` back to `null` once set (only replace it with a different string) — see [Open questions](#open-questions).
 
 `PUT /sensors/{sensorId}/profile` replaces the sensor's whole profile with the given JSON body — no partial update, since the contents are opaque to this service. For a sensor that [Sensor Array Simulator](/modules/sensor_array_simulator/) is meant to run, whoever registers that sensor would `PUT` its simulation-tuning parameters here (the simulator only reads them):
 
@@ -172,7 +174,7 @@ Preliminary route sketch, mounted under `/api/v1`:
 }
 ```
 
-Any JSON object is accepted (validated as `z.record(z.string(), z.unknown())` or similar — just "is this a JSON object," not any particular shape); `404` if `sensorId` doesn't reference a known sensor. `GET` on a sensor with no profile set returns `404`.
+Any JSON object is accepted (validated as `z.record(z.string(), z.unknown())`, which correctly rejects arrays/strings/null — just "is this a JSON object," not any particular shape); returns `200` with the stored profile, or `404` if `sensorId` doesn't reference a known sensor. `GET` returns `200` with the profile, or `404` if none is set. `DELETE` is idempotent — it returns `204` whether or not a profile existed.
 
 `POST /drones/{serial}/positions` accepts a single report or an array of reports (a remote ID receiver may batch several broadcasts per request):
 
@@ -187,7 +189,9 @@ Any JSON object is accepted (validated as `z.record(z.string(), z.unknown())` or
 }
 ```
 
-`GET /drones/{serial}/positions` supports `from`/`to` (ISO 8601) and `limit` query parameters, returning reports (including which `sensorId` produced each one) ordered by `recordedAt` ascending.
+Every `sensorId` in the request is validated against the sensor registry up front; if any are unknown, the whole request is rejected with `404` naming the unknown ID(s) and nothing is inserted. Otherwise it inserts via `ON CONFLICT (recorded_at, report_id) DO NOTHING` and returns `201` with only the reports that were newly inserted — an idempotent retry that resubmits already-stored reports gets `201` back with an empty (or partial) array rather than an error, since duplicates are silently accepted rather than echoed.
+
+`GET /drones/{serial}/positions` supports `from`/`to` (ISO 8601) and `limit` query parameters, returning `200` with reports (including which `sensorId` produced each one) ordered by `recordedAt` ascending. `GET /drones/{serial}/positions/latest` returns `200` with the single most recent report, or `404` if the drone has no recorded positions.
 
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
 
@@ -222,8 +226,10 @@ Following the module convention in the root `CLAUDE.md`, this module gets its ow
 
 Multi-stage build, mirroring the pattern in `documentation/dockerfile`:
 
-1. **Build stage** — `FROM oven/bun:<version>-debian`, `bun install`, then `bun build --compile --outfile server ./src/index.ts` to produce a standalone native executable.
-2. **Runtime stage** — a slim base image containing just the compiled binary, running it directly (no Bun runtime needed at runtime since the executable is self-contained).
+1. **Build stage** — `FROM oven/bun:1.3.14-debian`, `bun install`, then `bun build --compile --outfile server ./src/index.ts` to produce a standalone native executable.
+2. **Runtime stage** — `debian:bookworm-slim`, containing just the compiled binary, run directly (no Bun runtime needed since the executable is self-contained). `ldd` on the compiled binary shows it only depends on glibc/`libpthread`/`libdl`/`libm`, all present in `bookworm-slim`, so nothing more exotic (e.g. a distroless base) was needed.
+
+A `.dockerignore` excludes `.env`, `node_modules`, and build artifacts from the build context — important here since, unlike the `documentation` module, this service's local `.env` holds real dev database credentials that must never end up baked into an image layer.
 
 A `run-docker.sh` for the Kubuntu deployment host, analogous to `database/run-docker.sh`, is deferred until the service has something to deploy.
 
@@ -239,3 +245,4 @@ Unit tests use `Bun.test`. Integration tests run against the shared dev/test Pos
 - Sensor status is explicit-only for now (no heartbeat/staleness detection) — a sensor that crashes without calling `PATCH .../status: offline` will show as `online` indefinitely. Revisit with a `last_seen_at` column and timeout logic if that turns out to matter.
 - Any size limit on `sensor_profiles.profile` documents (unbounded JSON blobs from arbitrary clients).
 - Whether `sensor_profiles` should cascade-delete if a sensor is ever removed — moot for now since sensors are never hard-deleted (see above).
+- `PATCH /sensors/{sensorId}` has no way to explicitly clear `notes` back to `null` once set, since the update is `COALESCE`-based and can't distinguish "omitted" from "set to null" (discovered during Phase 6). Revisit with an explicit "clear this field" convention (e.g. a sentinel value, or a separate endpoint) if that turns out to matter.
