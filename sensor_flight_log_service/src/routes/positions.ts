@@ -1,4 +1,5 @@
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
+import { createRoute, z } from '@hono/zod-openapi';
+import { createRouter } from '../openapi-router';
 import {
   findMissingSensorIds,
   getLatestPositionReport,
@@ -13,7 +14,7 @@ import {
   PositionReportSchema,
 } from '../schemas/position';
 
-export const positionsRouter = new OpenAPIHono();
+export const positionsRouter = createRouter();
 
 export function normalizeToArray<T>(body: T | T[]): T[] {
   return Array.isArray(body) ? body : [body];

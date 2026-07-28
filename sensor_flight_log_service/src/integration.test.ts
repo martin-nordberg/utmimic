@@ -19,6 +19,19 @@ afterAll(async () => {
 });
 
 describe('sensor flight log service (end-to-end)', () => {
+  test('validation failures return { message } like every other error, not the default ZodError shape', async () => {
+    const res = await app.request('/api/v1/sensors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'missing required fields' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await jsonBody<{ message: string }>(res);
+    expect(typeof body.message).toBe('string');
+    expect(body).not.toHaveProperty('success');
+    expect(body).not.toHaveProperty('error');
+  });
+
   test('registers a sensor', async () => {
     const res = await app.request('/api/v1/sensors', {
       method: 'POST',

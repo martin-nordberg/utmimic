@@ -1,4 +1,5 @@
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
+import { createRoute, z } from '@hono/zod-openapi';
+import { createRouter } from '../openapi-router';
 import {
   SensorAlreadyExistsError,
   getSensorById,
@@ -9,7 +10,7 @@ import {
 import { ErrorSchema } from '../schemas/common';
 import { CreateSensorSchema, SensorIdParamSchema, SensorSchema, UpdateSensorSchema } from '../schemas/sensor';
 
-export const sensorsRouter = new OpenAPIHono();
+export const sensorsRouter = createRouter();
 
 const createSensorRoute = createRoute({
   method: 'post',

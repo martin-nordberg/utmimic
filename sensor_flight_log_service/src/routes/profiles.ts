@@ -1,10 +1,11 @@
-import { createRoute, OpenAPIHono } from '@hono/zod-openapi';
+import { createRoute } from '@hono/zod-openapi';
+import { createRouter } from '../openapi-router';
 import { ProfileSensorNotFoundError, deleteProfile, getProfile, upsertProfile } from '../repositories/profiles';
 import { ErrorSchema } from '../schemas/common';
 import { ProfileBodySchema, SensorProfileSchema } from '../schemas/profile';
 import { SensorIdParamSchema } from '../schemas/sensor';
 
-export const profilesRouter = new OpenAPIHono();
+export const profilesRouter = createRouter();
 
 const putProfileRoute = createRoute({
   method: 'put',

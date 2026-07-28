@@ -1,12 +1,12 @@
 import { swaggerUI } from '@hono/swagger-ui';
-import { OpenAPIHono } from '@hono/zod-openapi';
 import { HTTPException } from 'hono/http-exception';
 import { logger } from './logger';
+import { createRouter } from './openapi-router';
 import { positionsRouter } from './routes/positions';
 import { profilesRouter } from './routes/profiles';
 import { sensorsRouter } from './routes/sensors';
 
-export const app = new OpenAPIHono();
+export const app = createRouter();
 
 app.use('*', async (c, next) => {
   const start = performance.now();
