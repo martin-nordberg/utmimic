@@ -1,6 +1,7 @@
 import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { logger } from './logger';
+import { positionsRouter } from './routes/positions';
 import { profilesRouter } from './routes/profiles';
 import { sensorsRouter } from './routes/sensors';
 
@@ -31,3 +32,4 @@ app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
 app.route('/api/v1/sensors', sensorsRouter);
 app.route('/api/v1/sensors/:sensorId/profile', profilesRouter);
+app.route('/api/v1/drones/:serial/positions', positionsRouter);
