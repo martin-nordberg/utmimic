@@ -103,14 +103,15 @@ One row per sensor-observed position:
 
 ```sql
 CREATE TABLE sensor_flight_log.position_reports (
-    report_id           text PRIMARY KEY,
+    report_id           text NOT NULL,
     sensor_id           text NOT NULL REFERENCES sensor_flight_log.sensors (sensor_id),
     drone_serial_number text NOT NULL,
     recorded_at         timestamptz NOT NULL,
     latitude            double precision NOT NULL,
     longitude           double precision NOT NULL,
     altitude_ft         double precision NOT NULL,
-    ingested_at         timestamptz NOT NULL DEFAULT now()
+    ingested_at         timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (recorded_at, report_id)
 );
 
 SELECT create_hypertable('sensor_flight_log.position_reports', by_range('recorded_at'));
@@ -123,7 +124,8 @@ Notes:
 
 - The table is a TimescaleDB hypertable partitioned on `recorded_at`, since this is pure time-series data.
 - `latitude`/`longitude` are plain columns for now rather than a PostGIS `geography(Point, 4326)` column — no spatial queries (radius search, geofencing, etc.) are planned yet, so the extra type isn't justified. Revisit if/when this service or a consumer needs spatial querying. This applies to both tables, including `sensors.latitude`/`longitude`.
-- `report_id` lets ingest clients retry a submission (e.g. after a network timeout) without creating duplicate rows — the insert becomes `ON CONFLICT (report_id) DO NOTHING`.
+- The primary key is `(recorded_at, report_id)` rather than `report_id` alone: TimescaleDB requires any unique constraint on a hypertable to include the partitioning column (`recorded_at`), discovered while running Phase 4's migration. `report_id` is still a client-generated cuid2 and unique in practice, so this doesn't change the ingest contract — it only changes the `ON CONFLICT` target below.
+- `report_id` lets ingest clients retry a submission (e.g. after a network timeout) without creating duplicate rows — since a retry resubmits the same `recorded_at` alongside the same `report_id`, the insert becomes `ON CONFLICT (recorded_at, report_id) DO NOTHING`.
 - Ingest is rejected with `404` if `sensor_id` doesn't reference a known sensor; this service does not auto-create sensors from ingest traffic.
 
 ## API

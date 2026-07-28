@@ -92,7 +92,7 @@ Same route/repository split as Phase 6, in `src/routes/profiles.ts` / `src/repos
 
 ## Phase 8 — Position ingestion and query endpoints
 
-- `POST /drones/{serial}/positions` — accept a single report object or an array (spec's batching note); validate each against the `sensors` table exists, returning `404` for a missing `sensor_id`; insert with `ON CONFLICT (report_id) DO NOTHING` for idempotent retries.
+- `POST /drones/{serial}/positions` — accept a single report object or an array (spec's batching note); validate each against the `sensors` table exists, returning `404` for a missing `sensor_id`; insert with `ON CONFLICT (recorded_at, report_id) DO NOTHING` for idempotent retries (see the spec's [Data model](/modules/sensor_flight_log_service/#data-model) note on why the primary key is composite).
 - `GET /drones/{serial}/positions` — `from`/`to`/`limit` query params, ascending by `recordedAt`, including `sensorId` per row.
 - `GET /drones/{serial}/positions/latest`.
 
