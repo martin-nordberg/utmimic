@@ -42,13 +42,14 @@ A single table, `live_flight_log.position_reports`, holds one row per simulated 
 
 ```sql
 CREATE TABLE live_flight_log.position_reports (
-    report_id           text PRIMARY KEY,
+    report_id           text NOT NULL,
     drone_serial_number text NOT NULL,
     recorded_at         timestamptz NOT NULL,
     latitude            double precision NOT NULL,
     longitude           double precision NOT NULL,
     altitude_ft         double precision NOT NULL,
-    ingested_at         timestamptz NOT NULL DEFAULT now()
+    ingested_at         timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (recorded_at, report_id)
 );
 
 SELECT create_hypertable('live_flight_log.position_reports', by_range('recorded_at'));
@@ -60,7 +61,8 @@ Notes:
 
 - The table is a TimescaleDB hypertable partitioned on `recorded_at`, since this is pure time-series data.
 - `latitude`/`longitude` are plain columns for now rather than a PostGIS `geography(Point, 4326)` column — no spatial queries (radius search, geofencing, etc.) are planned yet, so the extra type isn't justified. Revisit if/when this service or a consumer needs spatial querying.
-- `report_id` lets ingest clients retry a submission (e.g. after a network timeout) without creating duplicate rows — the insert becomes `ON CONFLICT (report_id) DO NOTHING`.
+- The primary key is `(recorded_at, report_id)` rather than `report_id` alone: TimescaleDB requires any unique constraint on a hypertable to include the partitioning column (`recorded_at`) — the same constraint [Sensor Flight Log Service](/modules/sensor_flight_log_service/#data-model) hit for its own `position_reports` table. `report_id` is still a client-generated cuid2 and unique in practice, so this doesn't change the ingest contract — it only changes the `ON CONFLICT` target below.
+- `report_id` lets ingest clients retry a submission (e.g. after a network timeout) without creating duplicate rows — since a retry resubmits the same `recorded_at` alongside the same `report_id`, the insert becomes `ON CONFLICT (recorded_at, report_id) DO NOTHING`.
 - Expected write frequency/precision is higher than `sensor_flight_log`'s — the sampling-down and imprecision that emulate a real remote ID sensor happen on the consuming side, not in this service (see [Open questions](#open-questions)).
 
 ## API
