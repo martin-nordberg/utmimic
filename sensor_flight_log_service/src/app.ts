@@ -1,6 +1,7 @@
 import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { logger } from './logger';
+import { profilesRouter } from './routes/profiles';
 import { sensorsRouter } from './routes/sensors';
 
 export const app = new OpenAPIHono();
@@ -29,3 +30,4 @@ app.doc('/openapi.json', {
 app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
 app.route('/api/v1/sensors', sensorsRouter);
+app.route('/api/v1/sensors/:sensorId/profile', profilesRouter);
