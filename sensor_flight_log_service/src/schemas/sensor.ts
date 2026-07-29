@@ -21,8 +21,8 @@ export const SensorSchema = z
     longitude: z.number().openapi({ example: -122.36 }),
     sensingRadiusMeters: z.number().positive().openapi({ example: 5000 }),
     status: SensorStatusSchema,
-    createdAt: z.string().datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
-    updatedAt: z.string().datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
+    createdAt: z.iso.datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
+    updatedAt: z.iso.datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
   })
   .openapi('Sensor');
 
