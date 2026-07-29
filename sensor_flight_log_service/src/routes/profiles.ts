@@ -5,8 +5,10 @@ import { ErrorSchema } from '../schemas/common';
 import { ProfileBodySchema, SensorProfileSchema } from '../schemas/profile';
 import { SensorIdParamSchema } from '../schemas/sensor';
 
+/** Router mounted at /api/v1/sensors/{sensorId}/profile. */
 export const profilesRouter = createRouter();
 
+/** PUT / — create or replace a sensor's profile. */
 const putProfileRoute = createRoute({
   method: 'put',
   path: '/',
@@ -37,6 +39,7 @@ profilesRouter.openapi(putProfileRoute, async (c) => {
   }
 });
 
+/** GET / — fetch a sensor's profile. */
 const getProfileRoute = createRoute({
   method: 'get',
   path: '/',
@@ -54,6 +57,7 @@ profilesRouter.openapi(getProfileRoute, async (c) => {
   return c.json(profile, 200);
 });
 
+/** DELETE / — remove a sensor's profile. */
 const deleteProfileRoute = createRoute({
   method: 'delete',
   path: '/',

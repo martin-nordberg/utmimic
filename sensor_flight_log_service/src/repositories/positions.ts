@@ -1,5 +1,6 @@
 import { sql } from '../db';
 
+/** Fields required to record a new position report. */
 export interface PositionReportInput {
   reportId: string;
   sensorId: string;
@@ -9,6 +10,7 @@ export interface PositionReportInput {
   altitudeFt: number;
 }
 
+/** A persisted position report, as returned to API clients. */
 export interface PositionReportRecord {
   reportId: string;
   sensorId: string;
@@ -20,12 +22,14 @@ export interface PositionReportRecord {
   ingestedAt: string;
 }
 
+/** Optional time-range and limit filters for listing position reports. */
 export interface PositionReportQuery {
   from?: string;
   to?: string;
   limit?: number;
 }
 
+/** Raw `position_reports` table row shape, before mapping to `PositionReportRecord`. */
 interface PositionReportRow {
   report_id: string;
   sensor_id: string;
@@ -37,6 +41,7 @@ interface PositionReportRow {
   ingested_at: Date;
 }
 
+/** Maps a raw position report row to its API record shape. */
 function mapRow(row: PositionReportRow): PositionReportRecord {
   return {
     reportId: row.report_id,
@@ -50,6 +55,7 @@ function mapRow(row: PositionReportRow): PositionReportRecord {
   };
 }
 
+/** Returns which of the given sensor ids don't exist. */
 export async function findMissingSensorIds(sensorIds: string[]): Promise<string[]> {
   const uniqueIds = [...new Set(sensorIds)];
   const rows = await sql<{ sensor_id: string }[]>`
@@ -59,6 +65,7 @@ export async function findMissingSensorIds(sensorIds: string[]): Promise<string[
   return uniqueIds.filter((id) => !found.has(id));
 }
 
+/** Inserts position reports for a drone, skipping duplicates by (recordedAt, reportId). */
 export async function insertPositionReports(
   droneSerialNumber: string,
   reports: PositionReportInput[],
@@ -90,6 +97,7 @@ export async function insertPositionReports(
   return inserted.map(mapRow);
 }
 
+/** Lists a drone's position history, ascending by recordedAt. */
 export async function listPositionReports(
   droneSerialNumber: string,
   query: PositionReportQuery,
@@ -105,6 +113,7 @@ export async function listPositionReports(
   return rows.map(mapRow);
 }
 
+/** Fetches a drone's most recently recorded position, or null if none exist. */
 export async function getLatestPositionReport(droneSerialNumber: string): Promise<PositionReportRecord | null> {
   const [row] = await sql<PositionReportRow[]>`
     SELECT * FROM sensor_flight_log.position_reports

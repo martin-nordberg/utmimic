@@ -10,8 +10,10 @@ import {
 import { ErrorSchema } from '../schemas/common';
 import { CreateSensorSchema, SensorIdParamSchema, SensorSchema, UpdateSensorSchema } from '../schemas/sensor';
 
+/** Router mounted at /api/v1/sensors. */
 export const sensorsRouter = createRouter();
 
+/** POST / — register a new sensor. */
 const createSensorRoute = createRoute({
   method: 'post',
   path: '/',
@@ -37,6 +39,7 @@ sensorsRouter.openapi(createSensorRoute, async (c) => {
   }
 });
 
+/** GET / — list all sensors. */
 const listSensorsRoute = createRoute({
   method: 'get',
   path: '/',
@@ -50,6 +53,7 @@ sensorsRouter.openapi(listSensorsRoute, async (c) => {
   return c.json(sensors, 200);
 });
 
+/** GET /{sensorId} — fetch a single sensor. */
 const getSensorRoute = createRoute({
   method: 'get',
   path: '/{sensorId}',
@@ -67,6 +71,7 @@ sensorsRouter.openapi(getSensorRoute, async (c) => {
   return c.json(sensor, 200);
 });
 
+/** PATCH /{sensorId} — partially update a sensor. */
 const patchSensorRoute = createRoute({
   method: 'patch',
   path: '/{sensorId}',

@@ -4,6 +4,7 @@ import * as m0001CreateSensors from './0001_create_sensors';
 import * as m0002CreateSensorProfiles from './0002_create_sensor_profiles';
 import * as m0003CreatePositionReports from './0003_create_position_reports';
 
+/** A single schema migration module, applying `up` inside a transaction. */
 interface Migration {
   up(sql: Bun.SQL): Promise<unknown>;
 }
@@ -12,12 +13,14 @@ interface Migration {
 // import: a runtime filesystem scan can't be resolved by bun build --compile, since the
 // compiled binary has no migrations/ directory on disk and a computed import() path can't
 // be statically bundled. Add new migrations to this list, in order, alongside the file.
+/** Migrations to apply, in order. */
 const migrations: { filename: string; module: Migration }[] = [
   { filename: '0001_create_sensors.ts', module: m0001CreateSensors },
   { filename: '0002_create_sensor_profiles.ts', module: m0002CreateSensorProfiles },
   { filename: '0003_create_position_reports.ts', module: m0003CreatePositionReports },
 ];
 
+/** Applies any not-yet-applied migrations, recording each in `schema_migrations`. */
 export async function runMigrations(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS sensor_flight_log.schema_migrations (

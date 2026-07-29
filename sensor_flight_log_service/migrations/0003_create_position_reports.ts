@@ -1,3 +1,4 @@
+/** Creates the `sensor_flight_log.position_reports` hypertable and its indexes. */
 export async function up(sql: Bun.SQL): Promise<void> {
   await sql`
     CREATE TABLE sensor_flight_log.position_reports (
@@ -19,6 +20,7 @@ export async function up(sql: Bun.SQL): Promise<void> {
   await sql`CREATE INDEX ON sensor_flight_log.position_reports (sensor_id, recorded_at DESC)`;
 }
 
+/** Drops the `sensor_flight_log.position_reports` table. */
 export async function down(sql: Bun.SQL): Promise<void> {
   await sql`DROP TABLE sensor_flight_log.position_reports`;
 }

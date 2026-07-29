@@ -51,6 +51,14 @@ Docs content lives under `documentation/src/content/docs/` as `.md`/`.mdx` files
 
 Full Starlight/Astro docs: https://docs.astro.build
 
+## Code comment style
+
+Every top-level declaration in application code — exported or not: functions, classes, types, interfaces, and consts — gets a one- or two-line JSDoc summary directly above it. See `sensor_flight_log_service/src/` for examples.
+
+Longer explanations of non-obvious behavior ("why", not "what") stay as plain `//` comments alongside the JSDoc; they aren't constrained to one or two lines. See `sensor_flight_log_service/src/app.ts`'s `JSON_CONTENT_TYPE` comment or `sensor_flight_log_service/src/openapi-router.ts` for the pattern: a longer `//` rationale comment, followed immediately by the short JSDoc summary, followed by the declaration.
+
+This applies to the actual codebase (`sensor_flight_log_service/` and future service modules) — not to `documentation/`'s Markdown/MDX content.
+
 ## Docker / container images
 
 The project is expected to grow into multiple modules, each with its own tech stack and its own container image (`documentation/` and `database/` are the current examples). Conventions for every module:

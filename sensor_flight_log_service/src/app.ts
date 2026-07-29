@@ -6,6 +6,7 @@ import { positionsRouter } from './routes/positions';
 import { profilesRouter } from './routes/profiles';
 import { sensorsRouter } from './routes/sensors';
 
+/** The service's root Hono app: middleware, error handling, docs, and route mounts. */
 export const app = createRouter();
 
 app.use('*', async (c, next) => {
@@ -35,7 +36,9 @@ app.onError((err, c) => {
 // constraint), a confusing error, or — worst — a 200 that silently discards the
 // caller's actual data (e.g. PUT profile "succeeding" by storing {} instead of
 // the submitted body). Reject early and explicitly instead.
+/** Content-Type header pattern accepted for JSON request bodies. */
 const JSON_CONTENT_TYPE = /^application\/([a-z-.]+\+)?json/;
+/** HTTP methods whose requests are expected to carry a body. */
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH']);
 
 app.use('*', async (c, next) => {

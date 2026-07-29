@@ -1,3 +1,4 @@
+/** Creates the `sensor_flight_log.sensor_profiles` table. */
 export async function up(sql: Bun.SQL): Promise<void> {
   await sql`
     CREATE TABLE sensor_flight_log.sensor_profiles (
@@ -9,6 +10,7 @@ export async function up(sql: Bun.SQL): Promise<void> {
   `;
 }
 
+/** Drops the `sensor_flight_log.sensor_profiles` table. */
 export async function down(sql: Bun.SQL): Promise<void> {
   await sql`DROP TABLE sensor_flight_log.sensor_profiles`;
 }

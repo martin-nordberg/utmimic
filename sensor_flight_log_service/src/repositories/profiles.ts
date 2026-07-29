@@ -1,6 +1,7 @@
 import { SQL } from 'bun';
 import { sql } from '../db';
 
+/** A sensor's stored simulation profile. */
 export interface SensorProfileRecord {
   sensorId: string;
   profile: Record<string, unknown>;
@@ -8,12 +9,14 @@ export interface SensorProfileRecord {
   updatedAt: string;
 }
 
+/** Thrown when setting a profile for a sensor that doesn't exist. */
 export class ProfileSensorNotFoundError extends Error {
   constructor(sensorId: string) {
     super(`Sensor ${sensorId} not found`);
   }
 }
 
+/** Raw `sensor_profiles` table row shape, before mapping to `SensorProfileRecord`. */
 interface SensorProfileRow {
   sensor_id: string;
   profile: Record<string, unknown>;
@@ -21,6 +24,7 @@ interface SensorProfileRow {
   updated_at: Date;
 }
 
+/** Maps a raw profile row to its API record shape. */
 function mapRow(row: SensorProfileRow): SensorProfileRecord {
   return {
     sensorId: row.sensor_id,
@@ -30,6 +34,7 @@ function mapRow(row: SensorProfileRow): SensorProfileRecord {
   };
 }
 
+/** Creates or replaces a sensor's profile; throws `ProfileSensorNotFoundError` if the sensor doesn't exist. */
 export async function upsertProfile(
   sensorId: string,
   profile: Record<string, unknown>,
@@ -50,6 +55,7 @@ export async function upsertProfile(
   }
 }
 
+/** Fetches a sensor's profile, or null if none is set. */
 export async function getProfile(sensorId: string): Promise<SensorProfileRecord | null> {
   const [row] = await sql<SensorProfileRow[]>`
     SELECT * FROM sensor_flight_log.sensor_profiles WHERE sensor_id = ${sensorId}
@@ -57,6 +63,7 @@ export async function getProfile(sensorId: string): Promise<SensorProfileRecord 
   return row ? mapRow(row) : null;
 }
 
+/** Deletes a sensor's profile, if one exists. */
 export async function deleteProfile(sensorId: string): Promise<void> {
   await sql`DELETE FROM sensor_flight_log.sensor_profiles WHERE sensor_id = ${sensorId}`;
 }

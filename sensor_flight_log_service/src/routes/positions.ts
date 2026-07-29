@@ -14,12 +14,15 @@ import {
   PositionReportSchema,
 } from '../schemas/position';
 
+/** Router mounted at /api/v1/drones/{serial}/positions. */
 export const positionsRouter = createRouter();
 
+/** Wraps a single item in an array, passing arrays through unchanged. */
 export function normalizeToArray<T>(body: T | T[]): T[] {
   return Array.isArray(body) ? body : [body];
 }
 
+/** POST / — ingest one or more position reports for a drone. */
 const ingestRoute = createRoute({
   method: 'post',
   path: '/',
@@ -53,6 +56,7 @@ positionsRouter.openapi(ingestRoute, async (c) => {
   return c.json(inserted, 201);
 });
 
+/** GET / — list a drone's position history. */
 const listRoute = createRoute({
   method: 'get',
   path: '/',
@@ -75,6 +79,7 @@ positionsRouter.openapi(listRoute, async (c) => {
   return c.json(reports, 200);
 });
 
+/** GET /latest — fetch a drone's most recent position. */
 const latestRoute = createRoute({
   method: 'get',
   path: '/latest',

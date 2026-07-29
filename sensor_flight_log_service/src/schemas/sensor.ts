@@ -1,7 +1,9 @@
 import { z } from '@hono/zod-openapi';
 
+/** Lifecycle status of a sensor. */
 export const SensorStatusSchema = z.enum(['online', 'offline']).openapi('SensorStatus');
 
+/** Path param schema for routes scoped to a sensor id. */
 export const SensorIdParamSchema = z.object({
   sensorId: z.string().min(1).openapi({
     param: { name: 'sensorId', in: 'path' },
@@ -9,6 +11,7 @@ export const SensorIdParamSchema = z.object({
   }),
 });
 
+/** Response schema for a persisted sensor. */
 export const SensorSchema = z
   .object({
     sensorId: z.string().min(1).openapi({ example: 'clh6z8h1x0000qzrm' }),
@@ -26,6 +29,7 @@ export const SensorSchema = z
   })
   .openapi('Sensor');
 
+/** Request body schema for registering a new sensor. */
 export const CreateSensorSchema = z
   .object({
     sensorId: z.string().min(1).openapi({ example: 'clh6z8h1x0000qzrm' }),
@@ -41,6 +45,7 @@ export const CreateSensorSchema = z
   })
   .openapi('CreateSensor');
 
+/** Request body schema for partially updating a sensor. */
 export const UpdateSensorSchema = z
   .object({
     name: z.string().min(1).optional(),

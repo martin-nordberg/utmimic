@@ -1,5 +1,6 @@
 import { z } from '@hono/zod-openapi';
 
+/** Arbitrary sensor simulation profile payload. */
 export const ProfileBodySchema = z
   .record(z.string(), z.unknown())
   .openapi('ProfileBody', {
@@ -10,6 +11,7 @@ export const ProfileBodySchema = z
     },
   });
 
+/** Response schema for a persisted sensor profile. */
 export const SensorProfileSchema = z
   .object({
     sensorId: z.string().min(1).openapi({ example: 'clh6z8h1x0000qzrm' }),

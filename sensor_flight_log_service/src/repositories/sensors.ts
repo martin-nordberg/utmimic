@@ -1,8 +1,10 @@
 import { SQL } from 'bun';
 import { sql } from '../db';
 
+/** Lifecycle status of a sensor. */
 export type SensorStatus = 'online' | 'offline';
 
+/** A persisted sensor, as returned to API clients. */
 export interface SensorRecord {
   sensorId: string;
   name: string;
@@ -15,6 +17,7 @@ export interface SensorRecord {
   updatedAt: string;
 }
 
+/** Fields required to register a new sensor. */
 export interface CreateSensorInput {
   sensorId: string;
   name: string;
@@ -25,6 +28,7 @@ export interface CreateSensorInput {
   status: SensorStatus;
 }
 
+/** Fields to partially update on an existing sensor. */
 export interface SensorPatch {
   name?: string;
   notes?: string;
@@ -34,12 +38,14 @@ export interface SensorPatch {
   status?: SensorStatus;
 }
 
+/** Thrown when registering a sensor whose id already exists. */
 export class SensorAlreadyExistsError extends Error {
   constructor(sensorId: string) {
     super(`Sensor ${sensorId} already exists`);
   }
 }
 
+/** Raw `sensors` table row shape, before mapping to `SensorRecord`. */
 interface SensorRow {
   sensor_id: string;
   name: string;
@@ -52,6 +58,7 @@ interface SensorRow {
   updated_at: Date;
 }
 
+/** Maps a raw sensor row to its API record shape. */
 function mapRow(row: SensorRow): SensorRecord {
   return {
     sensorId: row.sensor_id,
@@ -66,6 +73,7 @@ function mapRow(row: SensorRow): SensorRecord {
   };
 }
 
+/** Inserts a new sensor, throwing `SensorAlreadyExistsError` if the id is taken. */
 export async function insertSensor(input: CreateSensorInput): Promise<SensorRecord> {
   try {
     const [row] = await sql<SensorRow[]>`
@@ -86,6 +94,7 @@ export async function insertSensor(input: CreateSensorInput): Promise<SensorReco
   }
 }
 
+/** Lists all sensors, oldest first. */
 export async function listSensors(): Promise<SensorRecord[]> {
   const rows = await sql<SensorRow[]>`
     SELECT * FROM sensor_flight_log.sensors ORDER BY created_at
@@ -93,6 +102,7 @@ export async function listSensors(): Promise<SensorRecord[]> {
   return rows.map(mapRow);
 }
 
+/** Fetches a sensor by id, or null if it doesn't exist. */
 export async function getSensorById(sensorId: string): Promise<SensorRecord | null> {
   const [row] = await sql<SensorRow[]>`
     SELECT * FROM sensor_flight_log.sensors WHERE sensor_id = ${sensorId}
@@ -100,6 +110,7 @@ export async function getSensorById(sensorId: string): Promise<SensorRecord | nu
   return row ? mapRow(row) : null;
 }
 
+/** Applies a partial update to a sensor, or null if it doesn't exist. */
 export async function updateSensor(sensorId: string, patch: SensorPatch): Promise<SensorRecord | null> {
   const [row] = await sql<SensorRow[]>`
     UPDATE sensor_flight_log.sensors
