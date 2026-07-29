@@ -9,10 +9,6 @@ interface Migration {
   up(sql: Bun.SQL): Promise<unknown>;
 }
 
-// Statically imported and registered by hand, rather than discovered via readdir/dynamic
-// import: a runtime filesystem scan can't be resolved by bun build --compile, since the
-// compiled binary has no migrations/ directory on disk and a computed import() path can't
-// be statically bundled. Add new migrations to this list, in order, alongside the file.
 /** Migrations to apply, in order. */
 const migrations: { filename: string; module: Migration }[] = [
   { filename: '0001_create_sensors.ts', module: m0001CreateSensors },
@@ -35,6 +31,10 @@ export async function runMigrations(): Promise<void> {
     ),
   );
 
+  // migrations is registered by hand above, rather than discovered via readdir/dynamic
+  // import: a runtime filesystem scan can't be resolved by bun build --compile, since the
+  // compiled binary has no migrations/ directory on disk and a computed import() path can't
+  // be statically bundled. Add new migrations to the list above, in order, alongside the file.
   for (const { filename, module } of migrations) {
     if (applied.has(filename)) continue;
 

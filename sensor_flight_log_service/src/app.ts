@@ -28,20 +28,17 @@ app.onError((err, c) => {
   return c.json({ message: 'Internal Server Error' }, 500);
 });
 
-// @hono/zod-openapi only runs its JSON body validator when Content-Type matches
-// application/json — for any other (or missing) Content-Type on a body-carrying
-// request, it skips validation entirely rather than rejecting the request, and
-// the route handler proceeds as if the body were empty. Depending on the route
-// that silently produces a 500 (fields arrive undefined, hitting a NOT NULL
-// constraint), a confusing error, or — worst — a 200 that silently discards the
-// caller's actual data (e.g. PUT profile "succeeding" by storing {} instead of
-// the submitted body). Reject early and explicitly instead.
 /** Content-Type header pattern accepted for JSON request bodies. */
 const JSON_CONTENT_TYPE = /^application\/([a-z-.]+\+)?json/;
 /** HTTP methods whose requests are expected to carry a body. */
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH']);
 
 app.use('*', async (c, next) => {
+  // @hono/zod-openapi only runs its JSON body validator when Content-Type matches
+  // application/json — for any other (or missing) Content-Type on a body-carrying
+  // request, it skips validation entirely rather than rejecting the request, and
+  // the route handler proceeds as if the body were empty. Reject early and explicitly
+  // instead to avoid some downstream error.
   if (METHODS_WITH_BODY.has(c.req.method)) {
     const contentType = c.req.header('content-type');
     if (!contentType || !JSON_CONTENT_TYPE.test(contentType)) {

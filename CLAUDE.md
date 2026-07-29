@@ -55,7 +55,7 @@ Full Starlight/Astro docs: https://docs.astro.build
 
 Every top-level declaration in application code — exported or not: functions, classes, types, interfaces, and consts — gets a one- or two-line JSDoc summary directly above it. See `sensor_flight_log_service/src/` for examples.
 
-Longer explanations of non-obvious behavior ("why", not "what") stay as plain `//` comments alongside the JSDoc; they aren't constrained to one or two lines. See `sensor_flight_log_service/src/app.ts`'s `JSON_CONTENT_TYPE` comment or `sensor_flight_log_service/src/openapi-router.ts` for the pattern: a longer `//` rationale comment, followed immediately by the short JSDoc summary, followed by the declaration.
+Longer explanations of non-obvious behavior ("why", not "what") stay as plain `//` comments; they aren't constrained to one or two lines. Put these inline inside the relevant code body — right above the line(s) they explain — whenever practical, rather than stacked above the declaration alongside the JSDoc. See `sensor_flight_log_service/src/app.ts`'s Content-Type check or `sensor_flight_log_service/src/openapi-router.ts` for the pattern. When there's no code body to put it in (e.g. a plain top-level const with no surrounding function), it's fine for the `//` comment to sit above the declaration, ahead of the JSDoc.
 
 This applies to the actual codebase (`sensor_flight_log_service/` and future service modules) — not to `documentation/`'s Markdown/MDX content.
 
