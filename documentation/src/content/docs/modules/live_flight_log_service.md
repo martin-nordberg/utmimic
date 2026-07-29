@@ -11,6 +11,8 @@ These are the "true" simulated positions, recorded at finer time intervals and w
 
 It is the sole owner of the `live_flight_log` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
+See the [implementation plan](/plans/live_flight_log_service_plan/) for the ordered build sequence for this module.
+
 ## Technologies
 
 * **Bun** as JavaScript engine and runtime
@@ -26,7 +28,7 @@ It is the sole owner of the `live_flight_log` schema: no other module reads or w
 
 ## Data model
 
-Preliminary — no tables exist yet in `live_flight_log`; this is a starting design, not a final one.
+Implemented as described below (migrated and exercised end-to-end by this module's test suite — see [Testing](#testing)).
 
 A single table, `live_flight_log.position_reports`, holds one row per simulated true position:
 
@@ -67,14 +69,16 @@ Notes:
 
 ## API
 
-Preliminary route sketch, mounted under `/api/v1`:
+Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, per the same finding documented in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/drones/{serial}/positions` | Ingest one or more simulated position reports for a drone |
-| `GET` | `/drones/{serial}/positions` | Query a drone's position history, filtered by time range |
-| `GET` | `/drones/{serial}/positions/latest` | Convenience lookup of the most recent known position |
+| `POST` | `/api/v1/drones/{serial}/positions` | Ingest one or more simulated position reports for a drone |
+| `GET` | `/api/v1/drones/{serial}/positions` | Query a drone's position history, filtered by time range |
+| `GET` | `/api/v1/drones/{serial}/positions/latest` | Convenience lookup of the most recent known position |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
+| `GET` | `/openapi.json` | Generated OpenAPI document |
+| `GET` | `/docs` | Swagger UI over `/openapi.json` |
 
 `POST /drones/{serial}/positions` accepts a single report or an array of reports (a flight simulator may batch several position updates per request):
 
@@ -88,7 +92,9 @@ Preliminary route sketch, mounted under `/api/v1`:
 }
 ```
 
-`GET /drones/{serial}/positions` supports `from`/`to` (ISO 8601) and `limit` query parameters, returning reports ordered by `recordedAt` ascending.
+It inserts via `ON CONFLICT (recorded_at, report_id) DO NOTHING` and returns `201` with only the reports that were newly inserted — an idempotent retry that resubmits already-stored reports gets `201` back with an empty (or partial) array rather than an error, since duplicates are silently accepted rather than echoed. Unlike [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api), there's no registry to validate against, so ingestion never `404`s.
+
+`GET /drones/{serial}/positions` supports `from`/`to` (ISO 8601) and `limit` query parameters, returning `200` with reports ordered by `recordedAt` ascending. `GET /drones/{serial}/positions/latest` returns `200` with the single most recent report, or `404` if the drone has no recorded positions.
 
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
 

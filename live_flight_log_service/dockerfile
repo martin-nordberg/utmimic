@@ -1,0 +1,21 @@
+# --- Stage 1: Build a standalone native executable with Bun ---
+FROM oven/bun:1.3.14-debian AS builder
+WORKDIR /app
+
+# Copy dependency manifests first to leverage caching
+COPY package.json bun.lock ./
+RUN bun install
+
+# Copy source code and compile
+COPY . .
+RUN bun build --compile --outfile server ./src/index.ts
+
+# --- Stage 2: Slim runtime with just the compiled binary ---
+FROM debian:bookworm-slim
+WORKDIR /app
+
+COPY --from=builder /app/server ./server
+
+EXPOSE 8003
+
+CMD ["./server"]
