@@ -30,7 +30,7 @@ Same stack as the other Bun/Hono services in this project ([Sensor Flight Log Se
 
 ## Data model
 
-Preliminary — no tables exist yet in `drone_registrations`; this is a starting design, not a final one.
+Implemented as described below (migrated and exercised end-to-end by this module's test suite — see [Testing](#testing)).
 
 ### `owners`
 
@@ -143,7 +143,7 @@ Notes:
 
 ## API
 
-Preliminary route sketch. Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, per the same finding documented in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api):
+Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, per the same finding documented in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api):
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -228,7 +228,7 @@ Migrations are TypeScript files owned by this module, not a separate CLI tool �
 
 - Migration files live in `migrations/`, named `0001_create_owners.ts`, `0002_create_pilots.ts`, `0003_create_drone_registrations.ts` (`owners` first, since both `pilots` and `drone_registrations` reference it), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `drone_registrations.schema_migrations` table tracks which migration filenames have been applied and when.
-- A small runner script (`bun run migrate`) statically imports each migration module and applies any not yet recorded in `schema_migrations`, in order, inside a transaction. The runner deliberately does *not* discover migrations by scanning the `migrations/` directory at runtime: a `bun build --compile` executable has no such directory on disk and can't resolve a dynamic, path-computed `import()` at bundle time, so a directory-scanning runner would crash on startup once packaged — the same finding [Sensor Flight Log Service](/modules/sensor_flight_log_service/#migrations) made. Adding a migration means adding both the file and a one-line registration in `migrations/run.ts`.
+- A small runner script (`bun run migrate`) statically imports each migration module and applies any not yet recorded in `schema_migrations`, in order, inside a transaction. The runner deliberately does *not* discover migrations by scanning the `migrations/` directory at runtime: a `bun build --compile` executable has no such directory on disk and can't resolve a dynamic, path-computed `import()` at bundle time, so a directory-scanning runner would crash on startup once packaged — the same finding [Sensor Flight Log Service](/modules/sensor_flight_log_service/#migrations) made, confirmed here too by running the compiled binary standalone. Adding a migration means adding both the file and a one-line registration in `migrations/run.ts`.
 - The container runs migrations on startup, before the HTTP server begins listening — acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
 
 ## Logging
@@ -253,8 +253,10 @@ Following the module convention in the root `CLAUDE.md`, this module gets its ow
 
 Multi-stage build, mirroring the pattern in `documentation/dockerfile`:
 
-1. **Build stage** — `FROM oven/bun:<version>-debian`, `bun install`, then `bun build --compile --outfile server ./src/index.ts` to produce a standalone native executable.
-2. **Runtime stage** — a slim base image containing just the compiled binary, running it directly (no Bun runtime needed at runtime since the executable is self-contained).
+1. **Build stage** — `FROM oven/bun:1.3.14-debian`, `bun install`, then `bun build --compile --outfile server ./src/index.ts` to produce a standalone native executable.
+2. **Runtime stage** — `debian:bookworm-slim`, containing just the compiled binary, run directly (no Bun runtime needed since the executable is self-contained). `ldd` on the compiled binary shows it only depends on glibc/`libpthread`/`libdl`/`libm`, all present in `bookworm-slim` — the same finding [Sensor Flight Log Service](/modules/sensor_flight_log_service/#docker-packaging) made.
+
+A `.dockerignore` excludes `.env`, `node_modules`, and build artifacts from the build context — important here since this service's local `.env` holds real dev database credentials that must never end up baked into an image layer.
 
 A `run-docker.sh` for the Kubuntu deployment host, analogous to `database/run-docker.sh`, is deferred until the service has something to deploy.
 
