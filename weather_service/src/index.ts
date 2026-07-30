@@ -1,9 +1,12 @@
+import { runMigrations } from '../migrations/run';
 import { app } from './app';
 import { config } from './config';
 import { sql } from './db';
 import { logger } from './logger';
 
-/** HTTP server for the service. */
+await runMigrations();
+
+/** HTTP server for the service, started after migrations have run. */
 const server = Bun.serve({
   port: config.PORT,
   fetch: app.fetch,
