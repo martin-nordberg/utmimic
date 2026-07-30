@@ -12,7 +12,7 @@ This service reuses the project layout, middleware, error-handling, and migratio
 
 Everything else in the spec's [Open questions](/modules/weather_service/#open-questions) (per-kind staleness windows, forecast staleness, polygon validity, auth, retention, batch limits, the weather simulator itself) is fine to leave as-is and revisit later — none of it blocks a first working version.
 
-Phases 1–10 below are complete: the service is implemented, tested, and containerized as described in the spec. Phase 11 is a net-new addition — the `/sun-times` endpoint — built on top of that finished foundation.
+Phases 1–11 below are complete: the service is implemented, tested, and containerized as described in the spec, including the `/sun-times` endpoint added in Phase 11. Phase 12 is a net-new addition — a point-or-extent spatial filter for the `.../current` endpoints — built on top of that finished foundation.
 
 ## Phase 1 — Project scaffolding
 
@@ -161,3 +161,44 @@ Uses the `suncalc` package (verified: `suncalc@2.0.1`, types via `@types/suncalc
 ### Docs follow-up
 
 Once implemented, update [`weather_service.md`](/modules/weather_service/) the same way Phase 10 did for the rest of the service: nothing here is marked "preliminary," so this is just confirming the spec still matches reality (field mapping, `null` behavior, `suncalc` version) rather than removing caveats.
+
+## Phase 12 — Point/extent spatial filter for `.../current`
+
+Extends the four already-implemented `.../current` endpoints (`visibility-zones/observed/current`, `visibility-zones/forecast/current`, and their `wind-zones` equivalents) to accept **either** a point (`lat`/`lon`, unchanged) **or** an extent (`lat1`/`lon1`/`lat2`/`lon2`, new), per the spec's [API](/modules/weather_service/#api) section. Decisions already made (see the spec):
+
+- The two groups are mutually exclusive and each is all-or-nothing: any mix of the two groups, or a partial group, or neither group, is a `400`.
+- `lat1`/`lon1`/`lat2`/`lon2` are any two diagonal corners, order-independent — normalize via `LEAST`/`GREATEST` on each axis rather than requiring a specific corner order.
+- Antimeridian-crossing extents are explicitly out of scope (open question in the spec) — a plain `min`/`max` box is fine.
+- `/sun-times` is unaffected — it stays point-only.
+
+### Shared helpers (`src/geo.ts`)
+
+Add to the module that already holds `geomFromGeoJson`/`polygonSelect`, since this is the same kind of "one PostGIS conversion, needed by both visibility and wind repositories" case:
+
+- A `SpatialFilter` type: `{ kind: 'point'; lat: number; lon: number } | { kind: 'extent'; lat1: number; lon1: number; lat2: number; lon2: number }`.
+- `toSpatialFilter(query)` — maps a validated query object (see schema changes below) to a `SpatialFilter`; assumes the Zod refinement already guaranteed exactly one complete group, so this is a plain presence check, not re-validation.
+- `spatialFilterCondition(filter: SpatialFilter)` — returns the `ST_Contains(geom, ST_SetSRID(ST_MakePoint(lon, lat), 4326))` fragment for a point, or `ST_Intersects(geom, ST_MakeEnvelope(LEAST(lon1,lon2), LEAST(lat1,lat2), GREATEST(lon1,lon2), GREATEST(lat1,lat2), 4326))` for an extent, using the same `sql\`...\`` fragment-composition technique already proven for `polygonSelect` (a fragment built with one `sql` tag embeds cleanly inside another).
+
+### Schema changes (`src/schemas/visibility-zone.ts`, `src/schemas/wind-zone.ts`)
+
+- Replace the plain `lat`/`lon`-only `*CurrentQuerySchema` with six optional coerced-number fields (`lat`, `lon`, `lat1`, `lon1`, `lat2`, `lon2`) plus a `superRefine` implementing the mutual-exclusivity/completeness rule above, using `ctx.addIssue` (mirroring the `ceilingFt`/`state` refinement's use of a custom message, though this one needs `superRefine` rather than `.refine()` since there are several distinct failure messages depending on which rule is violated).
+- Build `*ObservedCurrentQuerySchema` and `*ForecastCurrentQuerySchema` directly from the spatial fields merged with `*LatestQuerySchema`/`*ForecastQuerySchema`'s fields respectively, then apply the `superRefine` — `.extend()` isn't available after `.superRefine()`, so the spatial+`at` fields need to be merged into one plain object first, refinement applied last.
+- Add OpenAPI examples for the four new fields (e.g. two corners around the existing visibility example polygon).
+
+### Repository changes (`src/repositories/visibility-zones.ts`, `src/repositories/wind-zones.ts`)
+
+- `listObservedCurrent`/`listForecastCurrent` change signature from `(lat, lon, ...)` to `(filter: SpatialFilter, ...)`, and their `WHERE ST_Contains(...)` clause becomes `WHERE ${spatialFilterCondition(filter)}` — same subquery-then-filter shape as today (select latest/closest-forecast per zone first, then apply the spatial predicate to that result), just with the predicate now built by the shared helper instead of hand-inlined.
+
+### Route changes (`src/routes/visibility-zones.ts`, `src/routes/wind-zones.ts`)
+
+- `observedCurrentRoute`/`forecastCurrentRoute` handlers call `toSpatialFilter(c.req.valid('query'))` and pass the result to the repository function instead of destructuring `lat`/`lon` directly.
+
+### Testing
+
+- Schema unit tests: point-only valid, extent-only valid (both corner orders), both groups given → invalid, partial point (`lat` no `lon`) → invalid, partial extent (three of four fields) → invalid, neither group → invalid.
+- Integration test additions to the existing `describe('visibility zones', ...)` block: an extent query that intersects `it-vis-fresh`'s polygon returns it; an extent that misses it returns `[]`; the same extent given with corners swapped (`lat1`/`lat2` and `lon1`/`lon2` reversed) returns the same result, proving the auto-normalization; a request with both `lat`/`lon` and `lat1`/`lon1`/`lat2`/`lon2` returns `400`; a request with neither returns `400`. A lighter version of the same cases for `wind-zones`, matching the existing point-query smoke-test convention.
+- Re-run the full suite to confirm the pre-existing point-query tests still pass unchanged (they should — the point path's behavior isn't changing, only how it's expressed in the schema/repository layer).
+
+### Docs follow-up
+
+The spec was already updated for this capability (API section, `.../current` route descriptions, Data model note on `ST_Intersects`, and two new Open Questions on antimeridian handling and extent range validation) — nothing further needed once implemented, same as Phase 11.
