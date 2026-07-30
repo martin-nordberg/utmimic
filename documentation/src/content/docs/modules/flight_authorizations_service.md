@@ -5,12 +5,13 @@ description: Web service to read and write flight plans and airspace authorizati
 
 This module is a stand-alone web service that wraps the PostgreSQL `flight_authorizations` schema (see [Database](/modules/database/)).
 
-Two key entities:
+Three key entities:
 
 - **Airspace authorizations** — a polygonal area, a maximum altitude, a start/end time, the owner ID authorized, and optionally the pilot ID authorized (both from [Drone Registrations Service](/modules/drone_registrations_service/)).
 - **Flight plans** — either a sequence of lat/long/altitude/radius waypoints, or a single polygonal area and altitude. A flight plan is linked to an owner, optionally a specific registration, and optionally a specific pilot (again, all IDs from Drone Registrations Service), has a start/end time, and may optionally be linked to one airspace authorization.
+- **Waivers** — an FAA Part 107 waiver (e.g. Operations from a Moving Vehicle, Night Operations, Beyond Visual Line of Sight, Operations Over People), granted to either a specific pilot or an owner (again, IDs from Drone Registrations Service), with a start/end time and free-text conditions/limitations.
 
-This service only stores and serves these two record types — it does not itself decide whether a flight plan is actually authorized (i.e. does it fit inside its linked authorization, or any authorization at all), and it does not check whether authorizations or flight plans overlap each other in space/time. That kind of automated decision-making belongs to a separate module (the architecture overview's "Authorization Auto Coordination," not designed yet), which is expected to use the spatial query endpoints below (`covering`, `intersecting`) to do it.
+This service only stores and serves these record types — it does not itself decide whether a flight plan is actually authorized (i.e. does it fit inside its linked authorization, or any authorization at all), and it does not check whether authorizations or flight plans overlap each other in space/time. That kind of automated decision-making belongs to a separate module (the architecture overview's "Authorization Auto Coordination," not designed yet), which is expected to use the spatial query endpoints below (`covering`, `intersecting`) to do it.
 
 It is the sole owner of the `flight_authorizations` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
@@ -37,6 +38,8 @@ Like [Drone Registrations Service](/modules/drone_registrations_service/#data-mo
 Preliminary — no tables exist yet in `flight_authorizations`; this is a starting design, not a final one.
 
 **Cross-service references**: `ownerId`, `registrationId`, and `pilotId` throughout this schema refer to rows in [Drone Registrations Service](/modules/drone_registrations_service/)'s `drone_registrations` schema — a *different* service's schema. Per this project's convention (each service is the sole owner of its own schema), there are no real foreign keys across that boundary; these are plain `text` columns. Unlike a same-schema FK, though, they **are** validated — at write time, this service calls Drone Registrations Service synchronously (see [API](#api)) rather than trusting the caller. That validation only happens at write time, not continuously: if Drone Registrations Service later changes or removes something this service already accepted an ID for, nothing here notices. See [Open questions](#open-questions).
+
+`waivers.pilot_id` is validated differently from the `pilotId` columns on `airspace_authorizations` and `flight_plans`: those two always carry an `ownerId` alongside `pilotId`, so validation looks the pilot up nested under that owner. A pilot-linked waiver has no `ownerId` stored next to it (see [`waivers`](#waivers) below), so this service instead calls Drone Registrations Service's standalone `GET /pilots/{pilotId}` (added to that service's spec for this purpose) — see [API](#api).
 
 ### `airspace_authorizations`
 
@@ -151,12 +154,55 @@ CREATE TABLE flight_authorizations.flight_plan_waypoints (
 CREATE INDEX ON flight_authorizations.flight_plan_waypoints USING GIST (point);
 ```
 
+### `waivers`
+
+One row per FAA Part 107 waiver, granted to either a specific pilot or an owner (individual or organization) — never both:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `waiver_id` | `text` | Client-generated cuid2 |
+| `waiver_type` | `text` | `'operations_from_moving_vehicle'`, `'night_operations'`, `'beyond_visual_line_of_sight'`, or `'operations_over_people'` |
+| `pilot_id` | `text` | Cross-service reference (see above); set when the waiver is granted to a specific pilot — exactly one of `pilot_id`/`owner_id` is set |
+| `owner_id` | `text` | Cross-service reference; set when the waiver is granted to an owner rather than a specific pilot — exactly one of `pilot_id`/`owner_id` is set |
+| `conditions` | `text` | Free-text operating conditions/limitations for this waiver |
+| `start_time` | `timestamptz` | |
+| `end_time` | `timestamptz` | |
+| `status` | `text` | `'proposed'`, `'approved'`, or `'rescinded'`; `default 'proposed'` |
+| `rescinded_at` | `timestamptz` | Set only when `status = 'rescinded'`, enforced by a check constraint |
+| `created_at` | `timestamptz` | `default now()` |
+| `updated_at` | `timestamptz` | `default now()`, bumped on every update |
+
+```sql
+CREATE TABLE flight_authorizations.waivers (
+    waiver_id     text PRIMARY KEY,
+    waiver_type   text NOT NULL CHECK (waiver_type IN ('operations_from_moving_vehicle', 'night_operations', 'beyond_visual_line_of_sight', 'operations_over_people')),
+    pilot_id      text,
+    owner_id      text,
+    conditions    text NOT NULL,
+    start_time    timestamptz NOT NULL,
+    end_time      timestamptz NOT NULL,
+    status        text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'approved', 'rescinded')),
+    rescinded_at  timestamptz,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    CHECK (end_time > start_time),
+    CHECK ((status = 'rescinded') = (rescinded_at IS NOT NULL)),
+    CHECK ((pilot_id IS NOT NULL) <> (owner_id IS NOT NULL))
+);
+
+CREATE INDEX ON flight_authorizations.waivers (pilot_id);
+CREATE INDEX ON flight_authorizations.waivers (owner_id);
+```
+
+Same `status`/`rescindedAt` lifecycle as `airspace_authorizations` (see the note above it): `rescinded_at` is stamped server-side on the `'rescinded'` transition, and `'rescinded'` is terminal, enforced in the service's update handler rather than the schema.
+
 Notes:
 
 - No TimescaleDB hypertables anywhere in this schema — see [Technologies](#technologies).
 - `flight_plans.polygon_area` and `flight_plan_waypoints.point` use PostGIS `geometry(..., 4326)`, same rationale as [Weather Service](/modules/weather_service/#data-model): spatial containment against `airspace_authorizations.area` is the actual point of this data.
 - A waypoint's `radius_meters` isn't pre-materialized as a buffered polygon; a "does this waypoint's cylinder fit inside this authorization" check would compute `ST_Buffer(point, radius)` (in an appropriate projected SRID) at query time rather than storing it.
 - Nothing in this service checks that a flight plan actually fits within its linked (or any) `airspace_authorization` — see the note at the top of this page.
+- `waivers` isn't referenced by, or referencing, `airspace_authorizations`/`flight_plans` — it stands alone for now, same "stores and serves, doesn't decide" stance as the rest of this service. Cross-referencing a flight plan against the waivers that apply to it is Authorization Auto Coordination's concern, not this service's.
 
 ## API
 
@@ -175,6 +221,10 @@ Preliminary route sketch, mounted under `/api/v1`:
 | `GET` | `/flight-plans/{flightPlanId}` | Get one flight plan (including its waypoints, if any) |
 | `PATCH` | `/flight-plans/{flightPlanId}` | Update a flight plan's fields (including linking/unlinking an `airspaceAuthorizationId`) |
 | `GET` | `/flight-plans/intersecting` | Flight plan(s) whose shape (polygon, or any waypoint's cylinder) intersects a given lat/lon bounding box, optionally filtered by altitude and/or time |
+| `POST` | `/waivers` | Create a waiver |
+| `GET` | `/waivers` | List waivers, optionally filtered by `pilotId`, `ownerId`, `waiverType`, `activeAt`, `status` |
+| `GET` | `/waivers/{waiverId}` | Get one waiver |
+| `PATCH` | `/waivers/{waiverId}` | Update a waiver's fields, including `status` transitions |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
 
 `POST /airspace-authorizations`:
@@ -252,19 +302,50 @@ A new authorization always starts `status: "proposed"` (not settable at creation
 }
 ```
 
+`POST /waivers`, pilot-linked:
+
+```json
+{
+  "waiverId": "clh6waiv0000qzrm...",
+  "waiverType": "beyond_visual_line_of_sight",
+  "pilotId": "clh6pilot0000qzrm...",
+  "ownerId": null,
+  "conditions": "BVLOS operations limited to a 1200 ft AGL corridor; a visual observer is required at each end of the corridor at all times.",
+  "startTime": "2026-08-01T00:00:00.000Z",
+  "endTime": "2027-08-01T00:00:00.000Z"
+}
+```
+
+`POST /waivers`, owner-linked (`pilotId`/`ownerId` swapped, any `ownerType`):
+
+```json
+{
+  "waiverId": "clh6waiv0001qzrm...",
+  "waiverType": "operations_over_people",
+  "pilotId": null,
+  "ownerId": "clh6owner0000qzrm...",
+  "conditions": "Sustained flight over open-air assemblies of people permitted only with the operator's small-category aircraft, per the attached Means of Compliance.",
+  "startTime": "2026-08-01T00:00:00.000Z",
+  "endTime": "2027-08-01T00:00:00.000Z"
+}
+```
+
+Exactly one of `pilotId`/`ownerId` must be set — `422` if both or neither are given. A new waiver always starts `status: "proposed"` (not settable at creation); `PATCH .../{waiverId}` with `{"status": "approved"}` or `{"status": "rescinded"}` transitions it, same rules as `airspace_authorizations`: a transition to `"rescinded"` stamps `rescindedAt` server-side, and `"rescinded"` is final (`409` on any further `status` change). `GET /waivers` filters — `pilotId`, `ownerId`, `waiverType`, `status`, and `activeAt` (default now, matching a waiver whose `[startTime, endTime]` covers it) — are all optional, same "omit to not filter on it" convention as the other list endpoints.
+
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
 
 **Cross-service ID validation**: on every `POST`/`PATCH` that sets `ownerId`, `registrationId`, or `pilotId`, this service calls [Drone Registrations Service](/modules/drone_registrations_service/) (`DRONE_REGISTRATIONS_SERVICE_URL`, see [Configuration](#configuration)) before writing:
 
-- `ownerId` — `GET /owners/{ownerId}`; `422` if not found.
-- `pilotId` (when given) — `GET /owners/{ownerId}/pilots/{pilotId}`, i.e. looked up *under* the given owner, not standalone; `422` if not found (covers both "pilot doesn't exist" and "pilot belongs to a different owner" in one check).
+- `ownerId` — `GET /owners/{ownerId}`; `422` if not found. Applies to `airspace_authorizations.owner_id`, `flight_plans.owner_id`, and `waivers.owner_id` (when set) alike — no `ownerType` restriction, any owner (individual or organization) can hold a waiver.
+- `pilotId` on `airspace_authorizations`/`flight_plans` (when given) — `GET /owners/{ownerId}/pilots/{pilotId}`, i.e. looked up *under* the given owner, not standalone; `422` if not found (covers both "pilot doesn't exist" and "pilot belongs to a different owner" in one check).
+- `pilotId` on `waivers` (when set) — `GET /pilots/{pilotId}` (Drone Registrations Service's standalone pilot lookup, added for this reason — see that service's spec), since a pilot-linked waiver has no `ownerId` alongside it to scope a nested lookup; `422` if not found.
 - `registrationId` (when given) — `GET /drone-registrations/{registrationId}`; `422` if not found, and also `422` if its `ownerId` doesn't match the given `ownerId`.
 
 ## Migrations
 
 Migrations are TypeScript files owned by this module, not a separate CLI tool — same rationale and mechanism as the other services (see [Sensor Flight Log Service](/modules/sensor_flight_log_service/#migrations)).
 
-- Migration files live in `migrations/`, named `0001_create_airspace_authorizations.ts`, `0002_create_flight_plans.ts`, `0003_create_flight_plan_waypoints.ts` (this order, since `flight_plans` references `airspace_authorizations` and `flight_plan_waypoints` references `flight_plans`), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
+- Migration files live in `migrations/`, named `0001_create_airspace_authorizations.ts`, `0002_create_flight_plans.ts`, `0003_create_flight_plan_waypoints.ts`, `0004_create_waivers.ts` (this order, since `flight_plans` references `airspace_authorizations` and `flight_plan_waypoints` references `flight_plans`; `waivers` has no in-schema references so its position after the others is arbitrary), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `flight_authorizations.schema_migrations` table tracks which migration filenames have been applied and when.
 - A small runner script (`bun run migrate`) reads `migrations/` in order, compares against `schema_migrations`, and applies any pending ones inside a transaction.
 - The container runs migrations on startup, before the HTTP server begins listening — acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
@@ -305,7 +386,9 @@ Unit tests use `Bun.test`. Integration tests run against the shared dev/test Pos
 
 - **Runtime dependency on Drone Registrations Service**: validating `ownerId`/`registrationId`/`pilotId` synchronously (see [API](#api)) means this service can no longer accept writes if Drone Registrations Service is unreachable. Whether that should be a hard failure (`503`) or some kind of degraded/best-effort fallback isn't decided.
 - Validation happens once, at write time — if Drone Registrations Service later changes or removes an owner/pilot/registration this service already validated, nothing here re-checks or gets notified.
-- Whether `"approved"` can revert to `"proposed"` (`"rescinded"` itself is decided: terminal, no way out — see [Data model](#data-model)).
+- Whether `"approved"` can revert to `"proposed"` (`"rescinded"` itself is decided: terminal, no way out — see [Data model](#data-model)) — applies to both `airspace_authorizations` and `waivers`.
+- Only four `waivers.waiver_type` values are modeled (Operations from a Moving Vehicle, Night Operations, Beyond Visual Line of Sight, Operations Over People) — not the full set of FAA Part 107 waiver categories. Adding another type means a migration to widen the `CHECK` constraint.
+- `waivers.conditions` is a single unstructured `text` field — fine for now, but it can't be queried/filtered on (e.g. "waivers with a max-altitude condition above X"). Revisit if that's ever needed.
 - Whether a flight plan should be allowed to exist with no `airspaceAuthorizationId` at all (e.g. representing a pending/unauthorized plan) — current design allows it, since the field is explicitly optional, but the implications (can it ever "fly" without one?) are Authorization Auto Coordination's concern, not this service's.
 - `flight_plan_waypoints.radius_meters` has no bounds check beyond `NOT NULL` (altitude fields across all three tables are now uniformly bound to `0`–`2000` ft).
 - Authentication/authorization on all endpoints (currently unspecified).

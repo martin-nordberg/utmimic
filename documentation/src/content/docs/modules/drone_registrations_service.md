@@ -156,6 +156,7 @@ Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/do
 | `GET` | `/api/v1/owners/{ownerId}/pilots/{pilotId}` | Get one pilot |
 | `PATCH` | `/api/v1/owners/{ownerId}/pilots/{pilotId}` | Update a pilot's fields |
 | `DELETE` | `/api/v1/owners/{ownerId}/pilots/{pilotId}` | Remove a pilot |
+| `GET` | `/api/v1/pilots/{pilotId}` | Get one pilot by ID alone, without needing its owner ID |
 | `GET` | `/api/v1/owners/{ownerId}/drone-registrations` | An owner's registrations (all drones), optionally filtered to those active as of `asOf` |
 | `POST` | `/api/v1/drone-registrations` | Create a registration |
 | `GET` | `/api/v1/drone-registrations` | List registrations, optionally filtered by `serialNumber` or `ownerId` |
@@ -197,6 +198,8 @@ For an individual, the same shape with `ownerType: "individual"` and no `company
   "licenseNumber": "REM-1234567"
 }
 ```
+
+`GET /pilots/{pilotId}` returns the same shape as `GET /owners/{ownerId}/pilots/{pilotId}` (including `organizationOwnerId`), just reachable without already knowing the owner ID; `404` if not found. Added for cross-service callers that hold a bare `pilotId` with no accompanying owner ID — e.g. [Flight Authorizations Service](/modules/flight_authorizations_service/)'s pilot-linked waivers (see that module's spec), where a waiver granted directly to a pilot has no `ownerId` stored alongside it to scope the lookup.
 
 `GET /owners/{ownerId}/drone-registrations` returns every registration the owner holds or has held, across all their drones (an owner can register more than one) — `404` if the owner itself doesn't exist. This is the nested, discoverable counterpart to `GET /drone-registrations?ownerId={ownerId}` (see below); both return the same rows, but this one 404s on an unknown owner instead of silently returning an empty array, and sits under the owner resource the way `/owners/{ownerId}/pilots` does. Pass `?asOf=2026-07-25` to filter to only the registrations active on that date (an owner with several drones can have more than one match) — omitted, it returns the owner's full registration history, active and expired alike.
 
