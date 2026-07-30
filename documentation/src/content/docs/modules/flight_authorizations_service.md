@@ -15,6 +15,8 @@ This service only stores and serves these record types — it does not itself de
 
 It is the sole owner of the `flight_authorizations` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
+See the [implementation plan](/plans/flight_authorizations_service_plan/) for the ordered build sequence for this module.
+
 ## Technologies
 
 Same stack as the other Bun/Hono services in this project ([Sensor Flight Log Service](/modules/sensor_flight_log_service/), [Live Flight Log Service](/modules/live_flight_log_service/), [Weather Service](/modules/weather_service/), [Drone Registrations Service](/modules/drone_registrations_service/)):
@@ -35,7 +37,7 @@ Like [Drone Registrations Service](/modules/drone_registrations_service/#data-mo
 
 ## Data model
 
-Preliminary — no tables exist yet in `flight_authorizations`; this is a starting design, not a final one.
+Implemented as described below (migrated and exercised end-to-end by this module's test suite — see [Testing](#testing)).
 
 **Cross-service references**: `ownerId`, `registrationId`, and `pilotId` throughout this schema refer to rows in [Drone Registrations Service](/modules/drone_registrations_service/)'s `drone_registrations` schema — a *different* service's schema. Per this project's convention (each service is the sole owner of its own schema), there are no real foreign keys across that boundary; these are plain `text` columns. Unlike a same-schema FK, though, they **are** validated — at write time, this service calls Drone Registrations Service synchronously (see [API](#api)) rather than trusting the caller. That validation only happens at write time, not continuously: if Drone Registrations Service later changes or removes something this service already accepted an ID for, nothing here notices. See [Open questions](#open-questions).
 
@@ -206,7 +208,7 @@ Notes:
 
 ## API
 
-Preliminary route sketch, mounted under `/api/v1`:
+Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, per the same finding documented in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api):
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -226,6 +228,8 @@ Preliminary route sketch, mounted under `/api/v1`:
 | `GET` | `/waivers/{waiverId}` | Get one waiver |
 | `PATCH` | `/waivers/{waiverId}` | Update a waiver's fields, including `status` transitions |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
+| `GET` | `/openapi.json` | Generated OpenAPI document |
+| `GET` | `/docs` | Swagger UI over `/openapi.json` |
 
 `POST /airspace-authorizations`:
 
@@ -341,13 +345,15 @@ All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the
 - `pilotId` on `waivers` (when set) — `GET /pilots/{pilotId}` (Drone Registrations Service's standalone pilot lookup, added for this reason — see that service's spec), since a pilot-linked waiver has no `ownerId` alongside it to scope a nested lookup; `422` if not found.
 - `registrationId` (when given) — `GET /drone-registrations/{registrationId}`; `422` if not found, and also `422` if its `ownerId` doesn't match the given `ownerId`.
 
+If Drone Registrations Service itself can't be reached (a network failure, or any `5xx` response from it), that's treated as this service's own dependency being down: the write fails with `503`, distinct from the `422`s above — not a degraded/best-effort fallback. A connection attempt to a stopped instance was found to hang indefinitely in this project's dev environment rather than failing fast, so the client enforces a 5-second timeout to bound it.
+
 ## Migrations
 
 Migrations are TypeScript files owned by this module, not a separate CLI tool — same rationale and mechanism as the other services (see [Sensor Flight Log Service](/modules/sensor_flight_log_service/#migrations)).
 
 - Migration files live in `migrations/`, named `0001_create_airspace_authorizations.ts`, `0002_create_flight_plans.ts`, `0003_create_flight_plan_waypoints.ts`, `0004_create_waivers.ts` (this order, since `flight_plans` references `airspace_authorizations` and `flight_plan_waypoints` references `flight_plans`; `waivers` has no in-schema references so its position after the others is arbitrary), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `flight_authorizations.schema_migrations` table tracks which migration filenames have been applied and when.
-- A small runner script (`bun run migrate`) reads `migrations/` in order, compares against `schema_migrations`, and applies any pending ones inside a transaction.
+- A small runner script (`bun run migrate`) statically imports each migration module and applies any not yet recorded in `schema_migrations`, in order, inside a transaction. The runner deliberately does *not* discover migrations by scanning the `migrations/` directory at runtime: a `bun build --compile` executable has no such directory on disk and can't resolve a dynamic, path-computed `import()` at bundle time, so a directory-scanning runner would crash on startup once packaged — the same finding [Sensor Flight Log Service](/modules/sensor_flight_log_service/#migrations) made, confirmed here too by running the compiled binary standalone (see [Docker packaging](#docker-packaging)). Adding a migration means adding both the file and a one-line registration in `migrations/run.ts`.
 - The container runs migrations on startup, before the HTTP server begins listening — acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
 
 ## Logging
@@ -373,8 +379,10 @@ Following the module convention in the root `CLAUDE.md`, this module gets its ow
 
 Multi-stage build, mirroring the pattern in `documentation/dockerfile`:
 
-1. **Build stage** — `FROM oven/bun:<version>-debian`, `bun install`, then `bun build --compile --outfile server ./src/index.ts` to produce a standalone native executable.
-2. **Runtime stage** — a slim base image containing just the compiled binary, running it directly (no Bun runtime needed at runtime since the executable is self-contained).
+1. **Build stage** — `FROM oven/bun:1.3.14-debian`, `bun install`, then `bun build --compile --outfile server ./src/index.ts` to produce a standalone native executable.
+2. **Runtime stage** — `debian:bookworm-slim`, containing just the compiled binary, run directly (no Bun runtime needed since the executable is self-contained). `ldd` on the compiled binary shows it only depends on glibc/`libpthread`/`libdl`/`libm`, all present in `bookworm-slim` — the same finding [Sensor Flight Log Service](/modules/sensor_flight_log_service/#docker-packaging) made.
+
+A `.dockerignore` excludes `.env`, `node_modules`, and build artifacts from the build context — important here since this service's local `.env` holds real dev database credentials and a Drone Registrations Service URL that must never end up baked into an image layer.
 
 A `run-docker.sh` for the Kubuntu deployment host, analogous to `database/run-docker.sh`, is deferred until the service has something to deploy.
 
@@ -382,9 +390,10 @@ A `run-docker.sh` for the Kubuntu deployment host, analogous to `database/run-do
 
 Unit tests use `Bun.test`. Integration tests run against the shared dev/test Postgres instance described in [Database](/modules/database/#development-and-test-instance) (port `5431` on the Kubuntu server) rather than mocks, matching the project's general preference for testing against real dependencies. Test setup drops and re-runs this service's own migrations against its schema at the start of a run, rather than a separate wipe mechanism.
 
+This is the first service in the project whose integration tests depend on a *sibling* service rather than just Postgres: since cross-service ID validation is this service's whole reason for calling Drone Registrations Service, the test suite spawns a real instance of it (`bun run src/index.ts` in that module's own directory, so it loads its own `.env`) and polls `/healthz` before running, rather than mocking those calls out. It seeds a few owners/pilots/registrations directly over HTTP against the spawned instance, tolerating `409` (already seeded by a prior run) instead of resetting that service's schema, which would risk disrupting its own test/dev state — seed IDs are namespaced distinctly from Drone Registrations Service's own integration test fixtures to avoid colliding with data already persisted in the shared dev/test database. The `drone-registrations-client.ts` module's own `fetch` status-code branching (`200`/`404`/`5xx`/timeout) is unit-tested separately with a mocked `fetch` — the one place in this service's test suite that mocks anything, since that's a call to a different service's network boundary rather than this service's own dependency.
+
 ## Open questions
 
-- **Runtime dependency on Drone Registrations Service**: validating `ownerId`/`registrationId`/`pilotId` synchronously (see [API](#api)) means this service can no longer accept writes if Drone Registrations Service is unreachable. Whether that should be a hard failure (`503`) or some kind of degraded/best-effort fallback isn't decided.
 - Validation happens once, at write time — if Drone Registrations Service later changes or removes an owner/pilot/registration this service already validated, nothing here re-checks or gets notified.
 - Whether `"approved"` can revert to `"proposed"` (`"rescinded"` itself is decided: terminal, no way out — see [Data model](#data-model)) — applies to both `airspace_authorizations` and `waivers`.
 - Only four `waivers.waiver_type` values are modeled (Operations from a Moving Vehicle, Night Operations, Beyond Visual Line of Sight, Operations Over People) — not the full set of FAA Part 107 waiver categories. Adding another type means a migration to widen the `CHECK` constraint.

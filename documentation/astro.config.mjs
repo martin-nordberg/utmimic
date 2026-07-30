@@ -36,7 +36,7 @@ export default defineConfig({
 						// { label: 'Database', slug: 'modules/database' },
 						// { label: 'Documentation', slug: 'modules/documentation' },
 						{ label: 'Drone Registrations Service', slug: 'plans/drone_registrations_service_plan' },
-						// { label: 'Flight Authorizations Service', slug: 'modules/flight_authorizations_service' },
+						{ label: 'Flight Authorizations Service', slug: 'plans/flight_authorizations_service_plan' },
 						{ label: 'Live Flight Log Service', slug: 'plans/live_flight_log_service_plan' },
 						// { label: 'Sensor Array Simulator', slug: 'modules/sensor_array_simulator' },
 						{ label: 'Sensor Flight Log Service', slug: 'plans/sensor_flight_log_service_plan' },
