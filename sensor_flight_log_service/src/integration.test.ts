@@ -36,6 +36,17 @@ describe('sensor flight log service (end-to-end)', () => {
     expect(getRes.status).toBe(404);
   });
 
+  test('rejects syntactically-broken JSON with a { message } JSON body, not a plain-text one', async () => {
+    const res = await app.request('/api/v1/sensors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not valid json',
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await jsonBody<{ message: string }>(res)).toEqual({ message: 'Malformed JSON in request body' });
+  });
+
   test('rejects a profile PUT with the wrong Content-Type rather than silently storing an empty profile', async () => {
     const setupRes = await app.request('/api/v1/sensors', {
       method: 'POST',

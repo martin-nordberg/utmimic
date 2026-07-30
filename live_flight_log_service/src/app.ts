@@ -20,7 +20,10 @@ app.use('*', async (c, next) => {
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {
-    return err.getResponse();
+    // Don't delegate to err.getResponse() here: for exceptions Hono's own internals throw
+    // (e.g. @hono/zod-openapi's JSON-body parser on malformed JSON), that returns a plain-text
+    // body with no Content-Type header, breaking every other error response's { message } shape.
+    return c.json({ message: err.message }, err.status);
   }
   logger.error(err);
   return c.json({ message: 'Internal Server Error' }, 500);

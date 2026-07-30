@@ -43,6 +43,17 @@ describe('weather_service (end-to-end)', () => {
     expect(res.status).toBe(415);
   });
 
+  test('rejects syntactically-broken JSON with a { message } JSON body, not a plain-text one', async () => {
+    const res = await app.request('/api/v1/visibility-zones/IT-ZONE/observed-reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not valid json',
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await jsonBody<{ message: string }>(res)).toEqual({ message: 'Malformed JSON in request body' });
+  });
+
   test('validation failures return { message } like every other error, not the default ZodError shape', async () => {
     const res = await app.request('/api/v1/visibility-zones/IT-ZONE/observed-reports', {
       method: 'POST',
