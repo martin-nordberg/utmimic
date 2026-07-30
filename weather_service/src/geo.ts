@@ -1,13 +1,8 @@
 import { sql } from './db';
-
-/** The GeoJSON Polygon shape this service reads and writes (see schemas/geojson.ts). */
-export interface PolygonGeoJson {
-  type: 'Polygon';
-  coordinates: number[][][];
-}
+import type { Polygon } from './schemas/geojson';
 
 /** SQL fragment converting a GeoJSON Polygon parameter into the stored PostGIS geometry, for use in an INSERT's VALUES list. */
-export function geomFromGeoJson(polygon: PolygonGeoJson) {
+export function geomFromGeoJson(polygon: Polygon) {
   return sql`ST_GeomFromGeoJSON(${JSON.stringify(polygon)})`;
 }
 

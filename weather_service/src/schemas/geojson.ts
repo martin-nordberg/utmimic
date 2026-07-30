@@ -11,3 +11,6 @@ export const PolygonSchema = z
     coordinates: z.array(z.array(z.tuple([z.number(), z.number()]))),
   })
   .openapi('Polygon');
+
+/** Inferred type of {@link PolygonSchema}, shared by the repositories and PostGIS helper that read/write it. */
+export type Polygon = z.infer<typeof PolygonSchema>;

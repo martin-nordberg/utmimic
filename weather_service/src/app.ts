@@ -2,6 +2,7 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { HTTPException } from 'hono/http-exception';
 import { logger } from './logger';
 import { createRouter } from './openapi-router';
+import { visibilityZonesRouter } from './routes/visibility-zones';
 
 /** The service's root Hono app: middleware, error handling, docs, and route mounts. */
 export const app = createRouter();
@@ -56,3 +57,5 @@ app.doc('/openapi.json', {
 });
 
 app.get('/docs', swaggerUI({ url: '/openapi.json' }));
+
+app.route('/api/v1/visibility-zones', visibilityZonesRouter);
