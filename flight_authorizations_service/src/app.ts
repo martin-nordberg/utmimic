@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { logger } from './logger';
 import { createRouter } from './openapi-router';
 import { airspaceAuthorizationsRouter } from './routes/airspace-authorizations';
+import { flightPlansRouter } from './routes/flight-plans';
 
 /** The service's root Hono app: middleware, error handling, docs, and route mounts. */
 export const app = createRouter();
@@ -59,3 +60,4 @@ app.doc('/openapi.json', {
 app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
 app.route('/api/v1/airspace-authorizations', airspaceAuthorizationsRouter);
+app.route('/api/v1/flight-plans', flightPlansRouter);
