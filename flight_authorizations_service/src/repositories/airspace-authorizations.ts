@@ -196,9 +196,6 @@ export async function updateAirspaceAuthorization(
   const existing = await getAirspaceAuthorizationById(authorizationId);
   if (!existing) return null;
 
-  if (patch.status !== undefined && existing.status === 'rescinded') {
-    throw new RescindedIsTerminalError(authorizationId);
-  }
   if (patch.pilotId != null && !(await pilotExistsUnderOwner(existing.ownerId, patch.pilotId))) {
     throw new PilotNotFoundError(patch.pilotId);
   }
@@ -208,7 +205,13 @@ export async function updateAirspaceAuthorization(
   // COALESCE (as used for the other fields below) can't tell them apart.
   const pilotIdProvided = 'pilotId' in patch;
   const rescinding = patch.status === 'rescinded';
+  const changingStatus = patch.status !== undefined;
 
+  // The "rescinded is terminal" guard lives in the UPDATE's WHERE clause, not as a separate
+  // pre-check against `existing.status` above — that would read-then-write with a gap in
+  // between, letting two concurrent PATCHes both pass the check before either commits. Gating
+  // the row match itself makes Postgres's row lock resolve the race: whichever UPDATE commits
+  // first flips the status, and the other's WHERE no longer matches.
   const [row] = await sql<AirspaceAuthorizationRow[]>`
     UPDATE flight_authorizations.airspace_authorizations
     SET
@@ -220,9 +223,13 @@ export async function updateAirspaceAuthorization(
       rescinded_at = CASE WHEN ${rescinding} THEN now() ELSE rescinded_at END,
       updated_at = now()
     WHERE authorization_id = ${authorizationId}
+      AND (NOT ${changingStatus} OR status <> 'rescinded')
     RETURNING ${SELECT_COLUMNS}
   `;
-  return row ? mapRow(row) : null;
+  if (row) return mapRow(row);
+  // No row matched despite `existing` having just been found: the only way that happens is the
+  // status guard above blocking a status change on an already- (or concurrently-) rescinded row.
+  throw new RescindedIsTerminalError(authorizationId);
 }
 
 /** Authorization(s), of any status unless `status` narrows it, whose `area` contains the point and whose `[startTime, endTime]` covers `at`, optionally also requiring `maxAltitudeFt >= altitudeFt`. */

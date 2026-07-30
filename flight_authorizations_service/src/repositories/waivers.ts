@@ -186,12 +186,14 @@ export async function updateWaiver(waiverId: string, patch: WaiverPatch): Promis
   const existing = await getWaiverById(waiverId);
   if (!existing) return null;
 
-  if (patch.status !== undefined && existing.status === 'rescinded') {
-    throw new RescindedIsTerminalError(waiverId);
-  }
-
   const rescinding = patch.status === 'rescinded';
+  const changingStatus = patch.status !== undefined;
 
+  // The "rescinded is terminal" guard lives in the UPDATE's WHERE clause, not as a separate
+  // pre-check against `existing.status` above — that would read-then-write with a gap in
+  // between, letting two concurrent PATCHes both pass the check before either commits. Gating
+  // the row match itself makes Postgres's row lock resolve the race: whichever UPDATE commits
+  // first flips the status, and the other's WHERE no longer matches.
   const [row] = await sql<WaiverRow[]>`
     UPDATE flight_authorizations.waivers
     SET
@@ -202,7 +204,11 @@ export async function updateWaiver(waiverId: string, patch: WaiverPatch): Promis
       rescinded_at = CASE WHEN ${rescinding} THEN now() ELSE rescinded_at END,
       updated_at = now()
     WHERE waiver_id = ${waiverId}
+      AND (NOT ${changingStatus} OR status <> 'rescinded')
     RETURNING ${SELECT_COLUMNS}
   `;
-  return row ? mapRow(row) : null;
+  if (row) return mapRow(row);
+  // No row matched despite `existing` having just been found: the only way that happens is the
+  // status guard above blocking a status change on an already- (or concurrently-) rescinded row.
+  throw new RescindedIsTerminalError(waiverId);
 }

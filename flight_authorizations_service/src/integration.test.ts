@@ -262,6 +262,30 @@ describe('flight_authorizations_service (end-to-end)', () => {
       expect(afterRescinded.status).toBe(409);
     });
 
+    test('concurrent rescind PATCHes on the same authorization: exactly one wins, the other 409s', async () => {
+      const created = await app.request('/api/v1/airspace-authorizations', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ ...authorization, authorizationId: 'fasit-auth-concurrent-rescind' }),
+      });
+      expect(created.status).toBe(201);
+
+      const patchRescind = () =>
+        app.request(`/api/v1/airspace-authorizations/fasit-auth-concurrent-rescind`, {
+          method: 'PATCH',
+          headers: jsonHeaders,
+          body: JSON.stringify({ status: 'rescinded' }),
+        });
+      const [first, second] = await Promise.all([patchRescind(), patchRescind()]);
+      const statuses = [first.status, second.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      const fetched = await app.request('/api/v1/airspace-authorizations/fasit-auth-concurrent-rescind');
+      const body = await jsonBody<{ status: string; rescindedAt: string | null }>(fetched);
+      expect(body.status).toBe('rescinded');
+      expect(body.rescindedAt).not.toBeNull();
+    });
+
     test('PATCH 404s for an unknown authorization', async () => {
       const res = await app.request('/api/v1/airspace-authorizations/no-such-auth', {
         method: 'PATCH',
@@ -495,6 +519,30 @@ describe('flight_authorizations_service (end-to-end)', () => {
     test('GET 404s for an unknown waiver', async () => {
       const res = await app.request('/api/v1/waivers/no-such-waiver');
       expect(res.status).toBe(404);
+    });
+
+    test('concurrent rescind PATCHes on the same waiver: exactly one wins, the other 409s', async () => {
+      const created = await app.request('/api/v1/waivers', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ ...ownerWaiver, waiverId: 'fasit-waiver-concurrent-rescind' }),
+      });
+      expect(created.status).toBe(201);
+
+      const patchRescind = () =>
+        app.request(`/api/v1/waivers/fasit-waiver-concurrent-rescind`, {
+          method: 'PATCH',
+          headers: jsonHeaders,
+          body: JSON.stringify({ status: 'rescinded' }),
+        });
+      const [first, second] = await Promise.all([patchRescind(), patchRescind()]);
+      const statuses = [first.status, second.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      const fetched = await app.request('/api/v1/waivers/fasit-waiver-concurrent-rescind');
+      const body = await jsonBody<{ status: string; rescindedAt: string | null }>(fetched);
+      expect(body.status).toBe('rescinded');
+      expect(body.rescindedAt).not.toBeNull();
     });
   });
 });
