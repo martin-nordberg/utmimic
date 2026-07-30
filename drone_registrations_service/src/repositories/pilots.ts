@@ -116,6 +116,14 @@ export async function getPilotById(ownerId: string, pilotId: string): Promise<Pi
   return row ? mapRow(row) : null;
 }
 
+/** Fetches a pilot by id alone, without needing its owning organization's id, or null if no match. */
+export async function getPilotByIdOnly(pilotId: string): Promise<PilotRecord | null> {
+  const [row] = await sql<PilotRow[]>`
+    SELECT * FROM drone_registrations.pilots WHERE pilot_id = ${pilotId}
+  `;
+  return row ? mapRow(row) : null;
+}
+
 /** Applies a partial update to a pilot, scoped to its owning organization, or null if no match. */
 export async function updatePilot(ownerId: string, pilotId: string, patch: PilotPatch): Promise<PilotRecord | null> {
   const [row] = await sql<PilotRow[]>`

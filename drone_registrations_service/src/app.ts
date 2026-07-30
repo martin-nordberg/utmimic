@@ -4,7 +4,7 @@ import { logger } from './logger';
 import { createRouter } from './openapi-router';
 import { droneRegistrationsRouter, ownerDroneRegistrationsRouter } from './routes/drone-registrations';
 import { ownersRouter } from './routes/owners';
-import { pilotsRouter } from './routes/pilots';
+import { pilotLookupRouter, pilotsRouter } from './routes/pilots';
 
 /** The service's root Hono app: middleware, error handling, docs, and route mounts. */
 export const app = createRouter();
@@ -62,5 +62,6 @@ app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
 app.route('/api/v1/owners', ownersRouter);
 app.route('/api/v1/owners/:ownerId/pilots', pilotsRouter);
+app.route('/api/v1/pilots', pilotLookupRouter);
 app.route('/api/v1/owners/:ownerId/drone-registrations', ownerDroneRegistrationsRouter);
 app.route('/api/v1/drone-registrations', droneRegistrationsRouter);

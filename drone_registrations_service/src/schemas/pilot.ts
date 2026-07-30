@@ -9,6 +9,14 @@ export const PilotParamsSchema = OwnerIdParamSchema.extend({
   }),
 });
 
+/** Path param schema for routes scoped to a pilot id alone, with no owner in the path. */
+export const PilotIdParamSchema = z.object({
+  pilotId: z.string().min(1).openapi({
+    param: { name: 'pilotId', in: 'path' },
+    example: 'clh6z8m2x0001qzrm',
+  }),
+});
+
 /** Fields shared by pilot request and response schemas. */
 const pilotFields = {
   name: z.string().min(1).openapi({ example: 'John Pilot' }),

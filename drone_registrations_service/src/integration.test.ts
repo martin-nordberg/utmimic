@@ -154,6 +154,17 @@ describe('drone_registrations_service (end-to-end)', () => {
     expect(res.status).toBe(409);
   });
 
+  test('fetches a pilot by id alone, without needing its owner id', async () => {
+    const res = await app.request('/api/v1/pilots/it-pilot-1');
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{ pilotId: string; organizationOwnerId: string }>(res);
+    expect(body.pilotId).toBe('it-pilot-1');
+    expect(body.organizationOwnerId).toBe('it-owner-org');
+
+    const unknown = await app.request('/api/v1/pilots/no-such-pilot');
+    expect(unknown.status).toBe(404);
+  });
+
   test('creates two non-overlapping registrations for the same serial number, and rejects an overlapping third', async () => {
     const first = await app.request('/api/v1/drone-registrations', {
       method: 'POST',

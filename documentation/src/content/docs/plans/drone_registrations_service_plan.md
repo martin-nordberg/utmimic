@@ -152,3 +152,14 @@ Following the pattern in `sensor_flight_log_service/dockerfile` / `build-docker.
 
 - Update [`drone_registrations_service.md`](/modules/drone_registrations_service/) to match implementation reality: remove the "Preliminary — no tables exist yet" caveat and the "Preliminary route sketch" qualifier, firm up the Docker packaging section's Bun image version and `ldd` finding (same as `weather_service`'s Phase 10), and confirm the already-resolved Open Questions entries (ownership transfer, duplicate-ID handling, overlap enforcement) still match what got built.
 - Add `{ label: 'Drone Registrations Service', slug: 'plans/drone_registrations_service_plan' }` to the "Implementation Plans" section of `documentation/astro.config.mjs`'s sidebar, alongside the existing entries.
+
+## Phase 11 — Standalone pilot lookup
+
+Added after the initial build, for [Flight Authorizations Service](/modules/flight_authorizations_service/)'s pilot-linked waivers: that service holds a bare `pilotId` with no `ownerId` alongside it, so the existing owner-nested `GET /owners/{ownerId}/pilots/{pilotId}` can't be used to validate it.
+
+- `src/repositories/pilots.ts`: `getPilotByIdOnly(pilotId)` — same `PilotRecord | null` shape as `getPilotById`, but `WHERE pilot_id = ${pilotId}` only, no `organization_owner_id` scoping.
+- `src/schemas/pilot.ts`: `PilotIdParamSchema` — a standalone `{ pilotId }` path param schema (unlike `PilotParamsSchema`, doesn't extend `OwnerIdParamSchema`).
+- `src/routes/pilots.ts`: new `pilotLookupRouter`, mounted separately (not nested under an owner):
+  - `GET /{pilotId}` — `200` with the same `PilotSchema` shape as the nested lookup (including `organizationOwnerId`), or `404`.
+- `src/app.ts`: `app.route('/api/v1/pilots', pilotLookupRouter)`.
+- Verify: fetch an existing pilot by id alone and confirm the response matches the nested lookup's shape; confirm `404` for an unknown `pilotId`.

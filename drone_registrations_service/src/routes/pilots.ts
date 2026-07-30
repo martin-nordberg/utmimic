@@ -7,16 +7,26 @@ import {
   PilotOwnerNotOrganizationError,
   deletePilot,
   getPilotById,
+  getPilotByIdOnly,
   insertPilot,
   listPilotsForOwner,
   updatePilot,
 } from '../repositories/pilots';
 import { ErrorSchema } from '../schemas/common';
 import { OwnerIdParamSchema } from '../schemas/owner';
-import { CreatePilotSchema, PilotParamsSchema, PilotSchema, UpdatePilotSchema } from '../schemas/pilot';
+import {
+  CreatePilotSchema,
+  PilotIdParamSchema,
+  PilotParamsSchema,
+  PilotSchema,
+  UpdatePilotSchema,
+} from '../schemas/pilot';
 
 /** Router mounted at /api/v1/owners/{ownerId}/pilots. */
 export const pilotsRouter = createRouter();
+
+/** Router mounted at /api/v1/pilots, for looking up a pilot without knowing its owner id. */
+export const pilotLookupRouter = createRouter();
 
 /** POST / — add a pilot under an organization owner. */
 const createPilotRoute = createRoute({
@@ -130,4 +140,22 @@ pilotsRouter.openapi(deletePilotRoute, async (c) => {
   const { ownerId, pilotId } = c.req.valid('param');
   await deletePilot(ownerId, pilotId);
   return c.body(null, 204);
+});
+
+/** GET /{pilotId} — fetch a single pilot by id alone, without needing its owner id. */
+const getPilotByIdOnlyRoute = createRoute({
+  method: 'get',
+  path: '/{pilotId}',
+  request: { params: PilotIdParamSchema },
+  responses: {
+    200: { content: { 'application/json': { schema: PilotSchema } }, description: 'Pilot' },
+    404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Pilot not found' },
+  },
+});
+
+pilotLookupRouter.openapi(getPilotByIdOnlyRoute, async (c) => {
+  const { pilotId } = c.req.valid('param');
+  const pilot = await getPilotByIdOnly(pilotId);
+  if (!pilot) return c.json({ message: `Pilot ${pilotId} not found` }, 404);
+  return c.json(pilot, 200);
 });
