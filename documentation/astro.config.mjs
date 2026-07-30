@@ -40,7 +40,7 @@ export default defineConfig({
 						{ label: 'Live Flight Log Service', slug: 'plans/live_flight_log_service_plan' },
 						// { label: 'Sensor Array Simulator', slug: 'modules/sensor_array_simulator' },
 						{ label: 'Sensor Flight Log Service', slug: 'plans/sensor_flight_log_service_plan' },
-						// { label: 'Weather Service', slug: 'modules/weather_service' },
+						{ label: 'Weather Service', slug: 'plans/weather_service_plan' },
 					],
 				},
 				{

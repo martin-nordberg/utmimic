@@ -19,6 +19,8 @@ Each kind of zone has two flavors of report, exposed through **distinct endpoint
 
 It is the sole owner of the `weather` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
+See the [implementation plan](/plans/weather_service_plan/) for the ordered build sequence for this module.
+
 ## Technologies
 
 Same stack as [Sensor Flight Log Service](/modules/sensor_flight_log_service/) and [Live Flight Log Service](/modules/live_flight_log_service/), since this is the same kind of Bun/Hono web service wrapping a schema:
@@ -26,7 +28,7 @@ Same stack as [Sensor Flight Log Service](/modules/sensor_flight_log_service/) a
 * **Bun** as JavaScript engine and runtime
 * **Hono** as web service routing and middleware framework
 * **Zod** for data validation, including a minimal hand-written schema for GeoJSON `Polygon` objects (rather than pulling in a full GeoJSON validation library for one shape)
-* **@hono/zod-openapi** for request/response validation against Zod schemas plus OpenAPI generation from the same definitions
+* **@hono/zod-openapi** for request/response validation against Zod schemas plus OpenAPI generation from the same definitions (superset of `@hono/zod-validator`)
 * **@paralleldrive/cuid2** for any unique IDs that need generation; clients generate IDs themselves where feasible (e.g. an idempotency key on ingest — see [API](#api))
 * **Bun.sql** for PostgreSQL access, including PostGIS functions (`ST_GeomFromGeoJSON`, `ST_AsGeoJSON`) to convert between the wire format and the stored `geometry` column — no ORM/spatial library needed for this
 * **Pino** for structured (JSON) logging to stdout
@@ -56,13 +58,14 @@ One row per actual visibility observation:
 
 ```sql
 CREATE TABLE weather.visibility_observed_reports (
-    report_id   text PRIMARY KEY,
+    report_id   text NOT NULL,
     zone_id     text NOT NULL,
     recorded_at timestamptz NOT NULL,
     state       text NOT NULL CHECK (state IN ('clear', 'cloudy', 'foggy', 'rainy', 'stormy')),
     ceiling_ft  double precision,
     geom        geometry(Polygon, 4326) NOT NULL,
     ingested_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (recorded_at, report_id),
     CHECK ((state = 'foggy') = (ceiling_ft IS NOT NULL))
 );
 
@@ -78,13 +81,14 @@ One row per issued visibility forecast — same shape, plus no implicit "latest"
 
 ```sql
 CREATE TABLE weather.visibility_forecast_reports (
-    report_id   text PRIMARY KEY,
+    report_id   text NOT NULL,
     zone_id     text NOT NULL,
     recorded_at timestamptz NOT NULL,
     state       text NOT NULL CHECK (state IN ('clear', 'cloudy', 'foggy', 'rainy', 'stormy')),
     ceiling_ft  double precision,
     geom        geometry(Polygon, 4326) NOT NULL,
     ingested_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (recorded_at, report_id),
     CHECK ((state = 'foggy') = (ceiling_ft IS NOT NULL))
 );
 
@@ -102,12 +106,13 @@ Same pattern, `state` drawn from the wind enum instead, no `ceiling_ft`:
 
 ```sql
 CREATE TABLE weather.wind_observed_reports (
-    report_id   text PRIMARY KEY,
+    report_id   text NOT NULL,
     zone_id     text NOT NULL,
     recorded_at timestamptz NOT NULL,
     state       text NOT NULL CHECK (state IN ('calm', 'slight_winds', 'heavy_winds', 'dangerous_winds')),
     geom        geometry(Polygon, 4326) NOT NULL,
-    ingested_at timestamptz NOT NULL DEFAULT now()
+    ingested_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (recorded_at, report_id)
 );
 
 SELECT create_hypertable('weather.wind_observed_reports', by_range('recorded_at'));
@@ -116,12 +121,13 @@ CREATE INDEX ON weather.wind_observed_reports (zone_id, recorded_at DESC);
 CREATE INDEX ON weather.wind_observed_reports USING GIST (geom);
 
 CREATE TABLE weather.wind_forecast_reports (
-    report_id   text PRIMARY KEY,
+    report_id   text NOT NULL,
     zone_id     text NOT NULL,
     recorded_at timestamptz NOT NULL,
     state       text NOT NULL CHECK (state IN ('calm', 'slight_winds', 'heavy_winds', 'dangerous_winds')),
     geom        geometry(Polygon, 4326) NOT NULL,
-    ingested_at timestamptz NOT NULL DEFAULT now()
+    ingested_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (recorded_at, report_id)
 );
 
 SELECT create_hypertable('weather.wind_forecast_reports', by_range('recorded_at'));
@@ -133,6 +139,7 @@ CREATE INDEX ON weather.wind_forecast_reports USING GIST (geom);
 Notes:
 
 - All four tables are TimescaleDB hypertables partitioned on `recorded_at`, same treatment as the flight-log services' report tables.
+- The primary key on each table is `(recorded_at, report_id)` rather than `report_id` alone: TimescaleDB requires any unique constraint on a hypertable to include the partitioning column — the same constraint [Sensor Flight Log Service](/modules/sensor_flight_log_service/#data-model) and [Live Flight Log Service](/modules/live_flight_log_service/#data-model) already hit for their own `position_reports` tables. `report_id` is still a client-generated cuid2 and unique in practice, so this doesn't change the ingest contract — it only changes the `ON CONFLICT` target (see [API](#api)).
 - `zone_id` has no identity/registry table of its own (unlike `sensor_flight_log.sensors`) — a weather zone has no attributes beyond what's already in each report (state, shape), so there's nothing to register ahead of time. It plays the same "correlation key with no owning table" role that `drone_serial_number` plays in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#data-model). The same `zone_id` value can appear in both a zone's observed and forecast table (there's no FK between them — nothing enforces or requires that correspondence).
 - This is the project's first real use of a PostGIS `geometry` column (the flight-log services deliberately stuck to plain `double precision` lat/lon since they had no spatial-query need yet). Weather zones are the opposite: spatial containment (`ST_Contains`) is the core query need — see the `.../current` endpoints below — hence the `geometry` type and its GIST index from the start.
 - `geometry(Polygon, 4326)` (planar, WGS84 degrees) rather than `geography` — simpler and has fuller function support (e.g. `ST_Contains` isn't available on `geography`), which is fine at the regional scale a single weather zone is expected to span. Revisit if zones end up large enough that planar distortion under SRID 4326 becomes inaccurate.
@@ -140,29 +147,31 @@ Notes:
 
 ## API
 
-Preliminary route sketch, mounted under `/api/v1`. Visibility and wind zones get identical, parallel endpoint shapes; within each, observed and forecast are distinct paths reflecting their different tables and capabilities:
+Preliminary route sketch. Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, per the same finding documented in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api). Visibility and wind zones get identical, parallel endpoint shapes; within each, observed and forecast are distinct paths reflecting their different tables and capabilities:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/visibility-zones/{zoneId}/observed-reports` | Ingest one or more observed reports for a zone |
-| `GET` | `/visibility-zones/observed` | Latest observed report per zone (current picture), or as of `at` if given |
-| `GET` | `/visibility-zones/observed/current` | Zone(s) whose observed polygon contains a point (`lat`, `lon`), latest or as of `at` |
-| `GET` | `/visibility-zones/{zoneId}/observed-reports` | A zone's observed history (`from`/`to`/`limit`) |
-| `GET` | `/visibility-zones/{zoneId}/observed-reports/latest` | A zone's single most recent observed report |
-| `POST` | `/visibility-zones/{zoneId}/forecast-reports` | Ingest one or more forecast reports for a zone |
-| `GET` | `/visibility-zones/forecast` | Each zone's forecast applicable to a **required** `at` — no "latest" |
-| `GET` | `/visibility-zones/forecast/current` | Zone(s) whose forecast polygon (for a required `at`) contains a point |
-| `GET` | `/visibility-zones/{zoneId}/forecast-reports` | A zone's forecast history (`from`/`to`/`limit`, or a specific `at`) |
-| `POST` | `/wind-zones/{zoneId}/observed-reports` | Same shape as visibility, for wind |
-| `GET` | `/wind-zones/observed` | ″ |
-| `GET` | `/wind-zones/observed/current` | ″ |
-| `GET` | `/wind-zones/{zoneId}/observed-reports` | ″ |
-| `GET` | `/wind-zones/{zoneId}/observed-reports/latest` | ″ |
-| `POST` | `/wind-zones/{zoneId}/forecast-reports` | ″ |
-| `GET` | `/wind-zones/forecast` | ″ |
-| `GET` | `/wind-zones/forecast/current` | ″ |
-| `GET` | `/wind-zones/{zoneId}/forecast-reports` | ″ |
+| `POST` | `/api/v1/visibility-zones/{zoneId}/observed-reports` | Ingest one or more observed reports for a zone |
+| `GET` | `/api/v1/visibility-zones/observed` | Latest observed report per zone (current picture), or as of `at` if given |
+| `GET` | `/api/v1/visibility-zones/observed/current` | Zone(s) whose observed polygon contains a point (`lat`, `lon`), latest or as of `at` |
+| `GET` | `/api/v1/visibility-zones/{zoneId}/observed-reports` | A zone's observed history (`from`/`to`/`limit`) |
+| `GET` | `/api/v1/visibility-zones/{zoneId}/observed-reports/latest` | A zone's single most recent observed report |
+| `POST` | `/api/v1/visibility-zones/{zoneId}/forecast-reports` | Ingest one or more forecast reports for a zone |
+| `GET` | `/api/v1/visibility-zones/forecast` | Each zone's forecast applicable to a **required** `at` — no "latest" |
+| `GET` | `/api/v1/visibility-zones/forecast/current` | Zone(s) whose forecast polygon (for a required `at`) contains a point |
+| `GET` | `/api/v1/visibility-zones/{zoneId}/forecast-reports` | A zone's forecast history (`from`/`to`/`limit`, or a specific `at`) |
+| `POST` | `/api/v1/wind-zones/{zoneId}/observed-reports` | Same shape as visibility, for wind |
+| `GET` | `/api/v1/wind-zones/observed` | ″ |
+| `GET` | `/api/v1/wind-zones/observed/current` | ″ |
+| `GET` | `/api/v1/wind-zones/{zoneId}/observed-reports` | ″ |
+| `GET` | `/api/v1/wind-zones/{zoneId}/observed-reports/latest` | ″ |
+| `POST` | `/api/v1/wind-zones/{zoneId}/forecast-reports` | ″ |
+| `GET` | `/api/v1/wind-zones/forecast` | ″ |
+| `GET` | `/api/v1/wind-zones/forecast/current` | ″ |
+| `GET` | `/api/v1/wind-zones/{zoneId}/forecast-reports` | ″ |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
+| `GET` | `/openapi.json` | Generated OpenAPI document |
+| `GET` | `/docs` | Swagger UI over `/openapi.json` |
 
 `POST /visibility-zones/{zoneId}/observed-reports` accepts a single report or an array of reports, with the polygon as GeoJSON:
 
@@ -181,7 +190,7 @@ Preliminary route sketch, mounted under `/api/v1`. Visibility and wind zones get
 }
 ```
 
-`POST .../forecast-reports` takes the identical body shape (it's a different endpoint, not a different field, that marks it as a forecast). `ceilingFt` is required when `state` is `"foggy"` and rejected otherwise, mirroring the table's check constraint. The `/wind-zones/...` equivalents drop `ceilingFt` and draw `state` from the wind enum instead.
+`POST .../forecast-reports` takes the identical body shape (it's a different endpoint, not a different field, that marks it as a forecast). `ceilingFt` is required when `state` is `"foggy"` and rejected otherwise, mirroring the table's check constraint. The `/wind-zones/...` equivalents drop `ceilingFt` and draw `state` from the wind enum instead. Every ingest endpoint inserts via `ON CONFLICT (recorded_at, report_id) DO NOTHING` and returns `201` with only the reports that were newly inserted — an idempotent retry that resubmits already-stored reports gets `201` back with an empty (or partial) array rather than an error, same convention as the flight-log services' ingest endpoints. There's no zone registry to validate against, so ingestion never `404`s.
 
 `GET /visibility-zones/observed` returns one entry per zone (its most recent observed report by default) — the "what does the sky look like right now, area-wide" view a map/dashboard would render; pass `?at=<timestamp>` to instead get each zone's most recent observed report **as of** that time (last known state at-or-before `at`). `GET /visibility-zones/observed/current?lat={lat}&lon={lon}` (optionally with `at`) returns whichever zone's observed polygon contains that point.
 
