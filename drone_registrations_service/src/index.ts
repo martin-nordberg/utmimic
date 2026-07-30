@@ -1,12 +1,23 @@
 import { app } from './app';
+import { config } from './config';
+import { sql } from './db';
+import { logger } from './logger';
 
-// Phase 1 scaffolding only: port is a bare env read here, replaced by the
-// validated src/config.ts (with a default of 8001) in Phase 2.
-const port = Number(process.env.PORT) || 8001;
-
-Bun.serve({
-  port,
+/** HTTP server for the service. */
+const server = Bun.serve({
+  port: config.PORT,
   fetch: app.fetch,
 });
 
-console.log(`drone_registrations_service listening on port ${port}`);
+logger.info(`drone_registrations_service listening on port ${config.PORT}`);
+
+/** Stops accepting connections and drains the database pool before exiting. */
+async function shutdown(signal: string) {
+  logger.info(`${signal} received, shutting down`);
+  server.stop();
+  await sql.close();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
