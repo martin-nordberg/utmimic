@@ -38,20 +38,28 @@ const flightPlanSharedFields = {
   endTime: z.iso.datetime().openapi({ example: '2026-08-01T15:30:00.000Z' }),
 };
 
+// .strict() on both branches: a plain z.object silently strips unrecognized keys rather than
+// rejecting them, so without this a request with planType: 'waypoints' alongside a polygonArea
+// field would parse "successfully" (just dropping polygonArea) instead of getting a 400 for the
+// contradictory shape.
 /** Request body schema for the `'waypoints'` shape of a flight plan. */
-const CreateWaypointsFlightPlanSchema = z.object({
-  planType: z.literal('waypoints'),
-  ...flightPlanSharedFields,
-  waypoints: z.array(WaypointSchema).min(1),
-});
+const CreateWaypointsFlightPlanSchema = z
+  .object({
+    planType: z.literal('waypoints'),
+    ...flightPlanSharedFields,
+    waypoints: z.array(WaypointSchema).min(1),
+  })
+  .strict();
 
 /** Request body schema for the `'polygon'` shape of a flight plan. */
-const CreatePolygonFlightPlanSchema = z.object({
-  planType: z.literal('polygon'),
-  ...flightPlanSharedFields,
-  polygonArea: PolygonSchema,
-  polygonMaxAltitudeFt: z.number().gte(0).lte(2000).openapi({ example: 250 }),
-});
+const CreatePolygonFlightPlanSchema = z
+  .object({
+    planType: z.literal('polygon'),
+    ...flightPlanSharedFields,
+    polygonArea: PolygonSchema,
+    polygonMaxAltitudeFt: z.number().gte(0).lte(2000).openapi({ example: 250 }),
+  })
+  .strict();
 
 /** Request body schema for creating a flight plan — a discriminated union on `planType`, since the two shapes are mutually exclusive (mirrors the table's CHECK constraints). Both branches require `endTime` after `startTime`. */
 export const CreateFlightPlanSchema = z
