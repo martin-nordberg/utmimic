@@ -1,7 +1,10 @@
+import { runMigrations } from '../migrations/run';
 import { app } from './app';
 import { config } from './config';
 import { sql } from './db';
 import { logger } from './logger';
+
+await runMigrations();
 
 /** HTTP server for the service. */
 const server = Bun.serve({

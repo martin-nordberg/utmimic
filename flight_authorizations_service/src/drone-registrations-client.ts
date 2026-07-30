@@ -1,10 +1,11 @@
 import { config } from './config';
 
 /**
- * Thrown when Drone Registrations Service can't be reached at all (a network error) or
- * responds with a `5xx` status — this service's own dependency being down, not "the ID doesn't
- * exist." Route handlers map this to `503`, distinct from the `422`s used for a missing ID (see
- * the implementation plan's Decisions already resolved section).
+ * Thrown when Drone Registrations Service can't be reached at all (a network error, or no
+ * response within {@link REQUEST_TIMEOUT_MS}) or responds with a `5xx` status — this service's
+ * own dependency being down, not "the ID doesn't exist." Route handlers map this to `503`,
+ * distinct from the `422`s used for a missing ID (see the implementation plan's Decisions
+ * already resolved section).
  */
 export class DroneRegistrationsServiceUnavailableError extends Error {
   constructor(detail: string) {
@@ -12,11 +13,21 @@ export class DroneRegistrationsServiceUnavailableError extends Error {
   }
 }
 
-/** GETs a path under Drone Registrations Service's base URL, classifying network errors and `5xx` responses as {@link DroneRegistrationsServiceUnavailableError}. Callers interpret the remaining status codes (`200`/`404`/etc.) themselves. */
+// A connection attempt to a port nothing is listening on was observed to hang indefinitely in
+// this environment rather than rejecting with ECONNREFUSED (confirmed with a bare `fetch` against
+// a stopped Drone Registrations Service instance) — without a bound, a single unreachable
+// dependency call would hang this service's own request handling forever instead of surfacing
+// the 503 the plan's resolved decision calls for. AbortSignal.timeout enforces that bound.
+/** Max time to wait for a Drone Registrations Service response before treating it as unavailable. */
+const REQUEST_TIMEOUT_MS = 5000;
+
+/** GETs a path under Drone Registrations Service's base URL, classifying network errors, timeouts, and `5xx` responses as {@link DroneRegistrationsServiceUnavailableError}. Callers interpret the remaining status codes (`200`/`404`/etc.) themselves. */
 async function get(path: string): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(`${config.DRONE_REGISTRATIONS_SERVICE_URL}${path}`);
+    res = await fetch(`${config.DRONE_REGISTRATIONS_SERVICE_URL}${path}`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
   } catch (err) {
     throw new DroneRegistrationsServiceUnavailableError(`request to ${path} failed: ${String(err)}`);
   }

@@ -33,7 +33,7 @@ export function containsPoint(lat: number, lon: number) {
 // is not string concatenation / injection — the fragment's own text is never caller-supplied.
 /** SQL fragment testing whether a geometry expression intersects a lat/lon bounding box (auto-normalized corners), for the `intersecting` endpoints. */
 export function intersectsEnvelope(
-  geom: ReturnType<typeof sql>,
+  geom: Bun.SQL.Query<unknown>,
   minLat: number,
   minLon: number,
   maxLat: number,
