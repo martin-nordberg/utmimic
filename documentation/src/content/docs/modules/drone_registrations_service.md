@@ -11,6 +11,8 @@ Unlike the other services documented so far, this data isn't a high-frequency ti
 
 It is the sole owner of the `drone_registrations` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
+See the [implementation plan](/plans/drone_registrations_service_plan/) for the ordered build sequence for this module.
+
 ## Technologies
 
 Same stack as the other Bun/Hono services in this project ([Sensor Flight Log Service](/modules/sensor_flight_log_service/), [Live Flight Log Service](/modules/live_flight_log_service/), [Weather Service](/modules/weather_service/)):
@@ -18,7 +20,7 @@ Same stack as the other Bun/Hono services in this project ([Sensor Flight Log Se
 * **Bun** as JavaScript engine and runtime
 * **Hono** as web service routing and middleware framework
 * **Zod** for data validation
-* **@hono/zod-openapi** for request/response validation against Zod schemas plus OpenAPI generation from the same definitions
+* **@hono/zod-openapi** for request/response validation against Zod schemas plus OpenAPI generation from the same definitions (superset of `@hono/zod-validator`)
 * **@paralleldrive/cuid2** for any unique IDs that need generation; clients generate IDs themselves where feasible (e.g. `ownerId`, `pilotId`, `registrationId` — see [API](#api))
 * **Bun.sql** for PostgreSQL access
 * **Pino** for structured (JSON) logging to stdout
@@ -141,25 +143,28 @@ Notes:
 
 ## API
 
-Preliminary route sketch, mounted under `/api/v1`:
+Preliminary route sketch. Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/docs` are top-level infrastructure endpoints and deliberately sit outside that prefix. Every `POST`/`PUT`/`PATCH` request must set `Content-Type: application/json` — enforced by middleware returning `415` otherwise, since `@hono/zod-openapi` silently skips body validation (rather than rejecting the request) when the header doesn't match, per the same finding documented in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api):
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/owners` | Create an owner (individual or organization) |
-| `GET` | `/owners` | List owners |
-| `GET` | `/owners/{ownerId}` | Get one owner |
-| `PATCH` | `/owners/{ownerId}` | Update an owner's fields |
-| `POST` | `/owners/{ownerId}/pilots` | Add a pilot under an organization owner |
-| `GET` | `/owners/{ownerId}/pilots` | List an organization's pilots |
-| `GET` | `/owners/{ownerId}/pilots/{pilotId}` | Get one pilot |
-| `PATCH` | `/owners/{ownerId}/pilots/{pilotId}` | Update a pilot's fields |
-| `DELETE` | `/owners/{ownerId}/pilots/{pilotId}` | Remove a pilot |
-| `POST` | `/drone-registrations` | Create a registration |
-| `GET` | `/drone-registrations` | List registrations, optionally filtered by `serialNumber` or `ownerId` |
-| `GET` | `/drone-registrations/{registrationId}` | Get one registration |
-| `PATCH` | `/drone-registrations/{registrationId}` | Update a registration's fields |
-| `GET` | `/drone-registrations/by-serial/{serialNumber}` | The registration active for a serial number as of `asOf` (default today) |
+| `POST` | `/api/v1/owners` | Create an owner (individual or organization) |
+| `GET` | `/api/v1/owners` | List owners |
+| `GET` | `/api/v1/owners/{ownerId}` | Get one owner |
+| `PATCH` | `/api/v1/owners/{ownerId}` | Update an owner's fields |
+| `POST` | `/api/v1/owners/{ownerId}/pilots` | Add a pilot under an organization owner |
+| `GET` | `/api/v1/owners/{ownerId}/pilots` | List an organization's pilots |
+| `GET` | `/api/v1/owners/{ownerId}/pilots/{pilotId}` | Get one pilot |
+| `PATCH` | `/api/v1/owners/{ownerId}/pilots/{pilotId}` | Update a pilot's fields |
+| `DELETE` | `/api/v1/owners/{ownerId}/pilots/{pilotId}` | Remove a pilot |
+| `GET` | `/api/v1/owners/{ownerId}/drone-registrations` | An owner's registrations (all drones), optionally filtered to those active as of `asOf` |
+| `POST` | `/api/v1/drone-registrations` | Create a registration |
+| `GET` | `/api/v1/drone-registrations` | List registrations, optionally filtered by `serialNumber` or `ownerId` |
+| `GET` | `/api/v1/drone-registrations/{registrationId}` | Get one registration |
+| `PATCH` | `/api/v1/drone-registrations/{registrationId}` | Update `make`/`modelNumber`/`startDate`/`endDate` (`ownerId` and `serialNumber` are immutable — see below) |
+| `GET` | `/api/v1/drone-registrations/by-serial/{serialNumber}` | The registration active for a serial number as of `asOf` (default today) |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
+| `GET` | `/openapi.json` | Generated OpenAPI document |
+| `GET` | `/docs` | Swagger UI over `/openapi.json` |
 
 `POST /owners`, for an organization (`companyName` required; `firstName`/`lastName` are the primary contact person):
 
@@ -180,9 +185,9 @@ Preliminary route sketch, mounted under `/api/v1`:
 }
 ```
 
-For an individual, the same shape with `ownerType: "individual"` and no `companyName` (rejected if present).
+For an individual, the same shape with `ownerType: "individual"` and no `companyName` (rejected if present). Returns `201` with the created owner, or `409` if `ownerId` already exists — the same client-chosen-ID convention as `POST /sensors` in [Sensor Flight Log Service](/modules/sensor_flight_log_service/#api), not the flight-log services' idempotent-retry ingest pattern (there's no time-series report here to retry).
 
-`POST /owners/{ownerId}/pilots` (rejected with `422` if the owner isn't `organization`-typed):
+`POST /owners/{ownerId}/pilots` (rejected with `422` if the owner isn't `organization`-typed, or `409` if `pilotId` already exists):
 
 ```json
 {
@@ -192,6 +197,8 @@ For an individual, the same shape with `ownerType: "individual"` and no `company
   "licenseNumber": "REM-1234567"
 }
 ```
+
+`GET /owners/{ownerId}/drone-registrations` returns every registration the owner holds or has held, across all their drones (an owner can register more than one) — `404` if the owner itself doesn't exist. This is the nested, discoverable counterpart to `GET /drone-registrations?ownerId={ownerId}` (see below); both return the same rows, but this one 404s on an unknown owner instead of silently returning an empty array, and sits under the owner resource the way `/owners/{ownerId}/pilots` does. Pass `?asOf=2026-07-25` to filter to only the registrations active on that date (an owner with several drones can have more than one match) — omitted, it returns the owner's full registration history, active and expired alike.
 
 `POST /drone-registrations`:
 
@@ -207,6 +214,10 @@ For an individual, the same shape with `ownerType: "individual"` and no `company
 }
 ```
 
+Returns `201` with the created registration, or `409` if `registrationId` already exists **or** if `[startDate, endDate]` overlaps an existing registration's date range for the same `serialNumber` — enforced at the application layer (a query before insert), not by a DB constraint (see [Open questions](#open-questions)). `PATCH` re-runs the same overlap check, excluding the row being patched itself, whenever `startDate`/`endDate` change.
+
+**Ownership transfer**: `ownerId` is immutable once a registration is created — deliberately, so a registration row's owner reflects who actually held it for that period. Reassigning a drone to a new owner means `PATCH`ing the current registration's `endDate` to the transfer date, then `POST`ing a new registration for the new owner starting the next day — using the two endpoints above, not a dedicated transfer endpoint. This is the same "renewal, ownership change" pattern the [Data model](#data-model) section describes as the reason a `serialNumber` can have several rows. The two calls aren't wrapped in a single transaction (see [Open questions](#open-questions)).
+
 `GET /drone-registrations/by-serial/{serialNumber}?asOf=2026-07-25` returns the one registration (if any) whose date range covers `asOf`; `404` if none. This is the endpoint other modules (e.g. Authorization Auto Coordination) would use to check "is this drone currently registered."
 
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
@@ -217,7 +228,7 @@ Migrations are TypeScript files owned by this module, not a separate CLI tool �
 
 - Migration files live in `migrations/`, named `0001_create_owners.ts`, `0002_create_pilots.ts`, `0003_create_drone_registrations.ts` (`owners` first, since both `pilots` and `drone_registrations` reference it), each exporting `up(sql)` and `down(sql)` functions that run statements via `Bun.sql`.
 - A `drone_registrations.schema_migrations` table tracks which migration filenames have been applied and when.
-- A small runner script (`bun run migrate`) reads `migrations/` in order, compares against `schema_migrations`, and applies any pending ones inside a transaction.
+- A small runner script (`bun run migrate`) statically imports each migration module and applies any not yet recorded in `schema_migrations`, in order, inside a transaction. The runner deliberately does *not* discover migrations by scanning the `migrations/` directory at runtime: a `bun build --compile` executable has no such directory on disk and can't resolve a dynamic, path-computed `import()` at bundle time, so a directory-scanning runner would crash on startup once packaged — the same finding [Sensor Flight Log Service](/modules/sensor_flight_log_service/#migrations) made. Adding a migration means adding both the file and a one-line registration in `migrations/run.ts`.
 - The container runs migrations on startup, before the HTTP server begins listening — acceptable for a single-instance early-stage deployment; revisit (e.g. a separate migrate step/job) if this ever runs with multiple replicas.
 
 ## Logging
@@ -253,9 +264,9 @@ Unit tests use `Bun.test`. Integration tests run against the shared dev/test Pos
 
 ## Open questions
 
-- Overlapping registration periods for the same `serial_number` aren't prevented at the DB level — would need a range/exclusion constraint (e.g. `EXCLUDE USING gist` with `btree_gist`) to enforce non-overlap, not added yet.
+- Overlapping registration periods for the same `serial_number` aren't prevented at the DB level — would need a range/exclusion constraint (e.g. `EXCLUDE USING gist` with `btree_gist`) to enforce non-overlap. `POST`/`PATCH` do check for it at the application level (see [API](#api)), but that's a query-then-insert race under concurrent writers, not a real constraint; revisit if this ever runs with more than one instance.
 - `pilots.organization_owner_id` pointing at an `owner_type = 'organization'` row isn't enforced by the schema (a plain `CHECK` can't reference another table) — currently an application-layer validation only; could add a trigger if this needs to be airtight.
-- Whether ownership transfer should be a `PATCH` to `owner_id` on an existing registration, or should instead close out the old registration (set `end_date`) and create a new one under the new owner for auditability — not yet decided.
+- Ownership transfer (closing the old registration and creating a new one — see [API](#api)) is two separate, non-atomic calls; a failure between them could leave a drone with no active registration for a moment, or two overlapping ones if the second call's overlap check runs before the first call's `PATCH` commits. Acceptable for now given the project's single-instance, no-auth stage; revisit with a single transactional "transfer" endpoint if this needs to be airtight.
 - Whether owners ever need a status/deactivation concept (they're never hard-deleted, and there's no `DELETE /owners/{ownerId}` endpoint, but nothing marks one as no-longer-active either).
 - Authentication/authorization on all endpoints (currently unspecified).
 - No `country` field on the address — assumed single-country for now; add if this ever needs to support international addresses.
