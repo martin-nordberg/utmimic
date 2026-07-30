@@ -14,6 +14,16 @@ const validPolygon = {
   ],
 };
 
+/** A valid closed 4-position ring whose first (and closing) position is `[lon, lat]` and whose other two positions are always in range, for isolating a single vertex value's range validation from the ring-shape checks. */
+function ringWithVertex(lon: number, lat: number) {
+  return [
+    [lon, lat],
+    [0, 0],
+    [0, 1],
+    [lon, lat],
+  ];
+}
+
 describe('PolygonSchema', () => {
   test('accepts a valid polygon', () => {
     expect(PolygonSchema.safeParse(validPolygon).success).toBe(true);
@@ -38,16 +48,33 @@ describe('PolygonSchema', () => {
   });
 
   test('rejects a vertex latitude of exactly 90 or -90 (exclusive)', () => {
-    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [[[0, 90]]] }).success).toBe(false);
-    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [[[0, -90]]] }).success).toBe(false);
+    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [ringWithVertex(0, 90)] }).success).toBe(false);
+    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [ringWithVertex(0, -90)] }).success).toBe(false);
   });
 
   test('accepts a vertex longitude of exactly 180 or -180 (inclusive)', () => {
-    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [[[180, 0]]] }).success).toBe(true);
-    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [[[-180, 0]]] }).success).toBe(true);
+    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [ringWithVertex(180, 0)] }).success).toBe(true);
+    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [ringWithVertex(-180, 0)] }).success).toBe(true);
   });
 
   test('rejects a vertex longitude beyond 180 or -180', () => {
-    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [[[180.001, 0]]] }).success).toBe(false);
+    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [ringWithVertex(180.001, 0)] }).success).toBe(false);
+  });
+
+  test('rejects a ring with fewer than 4 positions', () => {
+    const twoPointRing = { ...validPolygon, coordinates: [[[0, 0], [1, 1]]] };
+    expect(PolygonSchema.safeParse(twoPointRing).success).toBe(false);
+  });
+
+  test('rejects a ring whose first and last positions do not match', () => {
+    const unclosed = {
+      ...validPolygon,
+      coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1]]],
+    };
+    expect(PolygonSchema.safeParse(unclosed).success).toBe(false);
+  });
+
+  test('rejects a polygon with no rings', () => {
+    expect(PolygonSchema.safeParse({ ...validPolygon, coordinates: [] }).success).toBe(false);
   });
 });

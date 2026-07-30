@@ -63,18 +63,25 @@ describe('CreateVisibilityReportSchema', () => {
     );
   });
 
+  // Inserts an extra vertex just before the ring's closing point, so the ring stays closed
+  // (first === last) and only the inserted vertex's range is under test.
+  function withExtraVertex(vertex: [number, number]) {
+    const ring = polygon.coordinates[0]!;
+    return { ...polygon, coordinates: [[...ring.slice(0, -1), vertex, ring[ring.length - 1]!]] };
+  }
+
   test('rejects a polygon vertex with an out-of-range latitude', () => {
-    const badPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [-122.42, 90]]] };
+    const badPolygon = withExtraVertex([-122.42, 90]);
     expect(CreateVisibilityReportSchema.safeParse({ ...validReport, polygon: badPolygon }).success).toBe(false);
   });
 
   test('rejects a polygon vertex with an out-of-range longitude', () => {
-    const badPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [180.001, 47.61]]] };
+    const badPolygon = withExtraVertex([180.001, 47.61]);
     expect(CreateVisibilityReportSchema.safeParse({ ...validReport, polygon: badPolygon }).success).toBe(false);
   });
 
   test('accepts a polygon vertex at the longitude boundary (inclusive)', () => {
-    const boundaryPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [180, 47.61]]] };
+    const boundaryPolygon = withExtraVertex([180, 47.61]);
     expect(CreateVisibilityReportSchema.safeParse({ ...validReport, polygon: boundaryPolygon }).success).toBe(true);
   });
 });
