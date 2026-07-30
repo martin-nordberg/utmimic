@@ -12,7 +12,7 @@ This service reuses the project layout, middleware, error-handling, and migratio
 
 Everything else in the spec's [Open questions](/modules/weather_service/#open-questions) (per-kind staleness windows, forecast staleness, polygon validity, auth, retention, batch limits, the weather simulator itself) is fine to leave as-is and revisit later — none of it blocks a first working version.
 
-Phases 1–11 below are complete: the service is implemented, tested, and containerized as described in the spec, including the `/sun-times` endpoint added in Phase 11. Phase 12 is a net-new addition — a point-or-extent spatial filter for the `.../current` endpoints — built on top of that finished foundation.
+Phases 1–13 below are complete: the service is implemented, tested, and containerized as described in the spec, including the `/sun-times` endpoint (Phase 11), the point-or-extent spatial filter for `.../current` (Phase 12), and coordinate-range validation (Phase 13).
 
 ## Phase 1 — Project scaffolding
 
@@ -201,4 +201,23 @@ Add to the module that already holds `geomFromGeoJson`/`polygonSelect`, since th
 
 ### Docs follow-up
 
-The spec was already updated for this capability (API section, `.../current` route descriptions, Data model note on `ST_Intersects`, and two new Open Questions on antimeridian handling and extent range validation) — nothing further needed once implemented, same as Phase 11.
+The spec was already updated for this capability (API section, `.../current` route descriptions, Data model note on `ST_Intersects`, and two new Open Questions on antimeridian handling and extent range validation) — nothing further needed once implemented, same as Phase 11. (The extent-range-validation open question was later resolved by Phase 13; antimeridian handling remains open.)
+
+## Phase 13 — Coordinate range validation
+
+Adds range checks to every latitude and longitude value the service accepts — query params (`lat`/`lon`/`lat1`/`lon1`/`lat2`/`lon2` on `.../current` and `/sun-times`) and polygon vertices in ingest bodies alike — plus a nonzero-width/height check on extents, per the spec's [Coordinate ranges](/modules/weather_service/#api) note. Rules: latitude exclusive of the poles (`-90 < lat < 90`), longitude inclusive of the antimeridian (`-180 <= lon <= 180`), and an extent's `lat1`/`lat2` must differ and `lon1`/`lon2` must differ.
+
+- `src/schemas/common.ts`: two new exported primitives, `LatitudeSchema` (`z.coerce.number().gt(-90).lt(90)`) and `LongitudeSchema` (`z.coerce.number().gte(-180).lte(180)`), used everywhere a bare `z.coerce.number()` previously stood in for a coordinate. `spatialFilterFields`' six fields switch to these. `validateSpatialFilter`'s `superRefine` gains a third branch (only reachable once a complete extent is present) checking `lat1 !== lat2` and `lon1 !== lon2` independently, each with its own `ctx.addIssue`, so a degenerate box that's both zero-width and zero-height reports on `lon2` (whichever check runs second) rather than silently only catching one dimension.
+- `src/schemas/geojson.ts`: `PolygonSchema`'s vertex tuple changes from `z.tuple([z.number(), z.number()])` to `z.tuple([LongitudeSchema, LatitudeSchema])` — imported from `common.ts`, no new circular-dependency risk since `common.ts` doesn't import from `geojson.ts`.
+- `src/schemas/sun-times.ts`: `SunTimesQuerySchema`'s `lat`/`lon` switch to `LatitudeSchema`/`LongitudeSchema` directly (not `.optional()`, since a point is always required there).
+- No repository, route, or migration changes — this is purely a schema-layer tightening; every downstream consumer already treated `lat`/`lon` as validated numbers.
+
+### Testing
+
+- Schema unit tests (`visibility-zone.test.ts`, `geojson.test.ts`, `sun-times.test.ts`): a latitude of exactly ±90 rejected, `89.999` accepted; a longitude of exactly ±180 accepted, `180.001`/`-180.001` rejected; a zero-height extent (`lat1 === lat2`) rejected; a zero-width extent (`lon1 === lon2`) rejected; a degenerate point-like extent (both zero) rejected; a polygon vertex outside either range rejected, one at the inclusive `±180` longitude boundary accepted.
+- Integration test additions: an out-of-range point and a zero-area extent both `400` on `.../current`; an ingest with an out-of-range polygon vertex `400`s.
+- Re-run the full suite to confirm no regressions in the pre-existing point/extent tests (values used there were already within range, so none needed updating).
+
+### Docs follow-up
+
+Already done alongside implementation this time (not deferred to a separate step): the spec's API section gained a **Coordinate ranges** paragraph, the `/sun-times` and `POST .../observed-reports` prose were updated to reference it, and the two now-resolved Open Questions entries (`/sun-times` lat/lon unvalidated, extent fields unvalidated) were removed. The antimeridian Open Question was kept, with a note that the nonzero-area check doesn't catch a mis-specified wraparound box (such a box isn't degenerate, just misinterpreted).

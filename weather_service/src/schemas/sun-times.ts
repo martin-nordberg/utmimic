@@ -1,10 +1,11 @@
 import { z } from '@hono/zod-openapi';
+import { LatitudeSchema, LongitudeSchema } from './common';
 
 /** Query params for a sun-times lookup: a calendar date and a point. */
 export const SunTimesQuerySchema = z.object({
   date: z.iso.date().openapi({ example: '2026-07-30' }),
-  lat: z.coerce.number().openapi({ example: 47.6062 }),
-  lon: z.coerce.number().openapi({ example: -122.3321 }),
+  lat: LatitudeSchema.openapi({ example: 47.6062 }),
+  lon: LongitudeSchema.openapi({ example: -122.3321 }),
 });
 
 /** Response schema for a sun-times lookup; fields are `null` for events that don't occur (polar day/night). */

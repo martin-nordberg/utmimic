@@ -158,6 +158,26 @@ describe('weather_service (end-to-end)', () => {
       expect(partialRes.status).toBe(400);
     });
 
+    test('GET /observed/current rejects an out-of-range point and a zero-area extent', async () => {
+      const outOfRangeRes = await app.request('/api/v1/visibility-zones/observed/current?lat=90&lon=0');
+      expect(outOfRangeRes.status).toBe(400);
+
+      const zeroAreaRes = await app.request(
+        '/api/v1/visibility-zones/observed/current?lat1=47.6&lon1=-122.4&lat2=47.6&lon2=-122.4',
+      );
+      expect(zeroAreaRes.status).toBe(400);
+    });
+
+    test('POST .../observed-reports rejects a polygon with an out-of-range vertex', async () => {
+      const badPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [200, 47.61]]] };
+      const res = await app.request('/api/v1/visibility-zones/it-vis-bad-polygon/observed-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId: 'it-vobs-bad-polygon', recordedAt: minutes(-5), state: 'clear', polygon: badPolygon }),
+      });
+      expect(res.status).toBe(400);
+    });
+
     test('GET /forecast requires at', async () => {
       const res = await app.request('/api/v1/visibility-zones/forecast');
       expect(res.status).toBe(400);

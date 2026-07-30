@@ -62,6 +62,21 @@ describe('CreateVisibilityReportSchema', () => {
       false,
     );
   });
+
+  test('rejects a polygon vertex with an out-of-range latitude', () => {
+    const badPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [-122.42, 90]]] };
+    expect(CreateVisibilityReportSchema.safeParse({ ...validReport, polygon: badPolygon }).success).toBe(false);
+  });
+
+  test('rejects a polygon vertex with an out-of-range longitude', () => {
+    const badPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [180.001, 47.61]]] };
+    expect(CreateVisibilityReportSchema.safeParse({ ...validReport, polygon: badPolygon }).success).toBe(false);
+  });
+
+  test('accepts a polygon vertex at the longitude boundary (inclusive)', () => {
+    const boundaryPolygon = { ...polygon, coordinates: [[...polygon.coordinates[0]!, [180, 47.61]]] };
+    expect(CreateVisibilityReportSchema.safeParse({ ...validReport, polygon: boundaryPolygon }).success).toBe(true);
+  });
 });
 
 describe('CreateVisibilityReportsBodySchema', () => {
@@ -156,6 +171,40 @@ describe('VisibilityObservedCurrentQuerySchema', () => {
 
   test('rejects neither a point nor an extent', () => {
     expect(VisibilityObservedCurrentQuerySchema.safeParse({}).success).toBe(false);
+  });
+
+  test('rejects a latitude of exactly 90 or -90 (exclusive)', () => {
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '90', lon: '0' }).success).toBe(false);
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '-90', lon: '0' }).success).toBe(false);
+  });
+
+  test('accepts a latitude just short of the poles', () => {
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '89.999', lon: '0' }).success).toBe(true);
+  });
+
+  test('accepts a longitude of exactly 180 or -180 (inclusive)', () => {
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '0', lon: '180' }).success).toBe(true);
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '0', lon: '-180' }).success).toBe(true);
+  });
+
+  test('rejects a longitude beyond 180 or -180', () => {
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '0', lon: '180.001' }).success).toBe(false);
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({ lat: '0', lon: '-180.001' }).success).toBe(false);
+  });
+
+  test('rejects an extent with zero height (lat1 === lat2)', () => {
+    const result = VisibilityObservedCurrentQuerySchema.safeParse({ lat1: '47.6', lon1: '-122.5', lat2: '47.6', lon2: '-122.3' });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects an extent with zero width (lon1 === lon2)', () => {
+    const result = VisibilityObservedCurrentQuerySchema.safeParse({ lat1: '47.5', lon1: '-122.4', lat2: '47.7', lon2: '-122.4' });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects a degenerate point-like extent (both zero width and height)', () => {
+    const result = VisibilityObservedCurrentQuerySchema.safeParse({ lat1: '47.6', lon1: '-122.4', lat2: '47.6', lon2: '-122.4' });
+    expect(result.success).toBe(false);
   });
 });
 
