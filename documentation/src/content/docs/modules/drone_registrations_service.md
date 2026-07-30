@@ -217,7 +217,7 @@ For an individual, the same shape with `ownerType: "individual"` and no `company
 }
 ```
 
-Returns `201` with the created registration, or `409` if `registrationId` already exists **or** if `[startDate, endDate]` overlaps an existing registration's date range for the same `serialNumber` — enforced at the application layer (a query before insert), not by a DB constraint (see [Open questions](#open-questions)). `PATCH` re-runs the same overlap check, excluding the row being patched itself, whenever `startDate`/`endDate` change.
+Returns `201` with the created registration, `404` if `ownerId` doesn't reference an existing owner, or `409` if `registrationId` already exists **or** if `[startDate, endDate]` overlaps an existing registration's date range for the same `serialNumber` — enforced at the application layer (a query before insert), not by a DB constraint (see [Open questions](#open-questions)). `PATCH` re-runs the same overlap check, excluding the row being patched itself, whenever `startDate`/`endDate` change.
 
 **Ownership transfer**: `ownerId` is immutable once a registration is created — deliberately, so a registration row's owner reflects who actually held it for that period. Reassigning a drone to a new owner means `PATCH`ing the current registration's `endDate` to the transfer date, then `POST`ing a new registration for the new owner starting the next day — using the two endpoints above, not a dedicated transfer endpoint. This is the same "renewal, ownership change" pattern the [Data model](#data-model) section describes as the reason a `serialNumber` can have several rows. The two calls aren't wrapped in a single transaction (see [Open questions](#open-questions)).
 

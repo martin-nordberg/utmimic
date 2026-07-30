@@ -1,5 +1,6 @@
 import { SQL } from 'bun';
 import { sql } from '../db';
+import { getOwnerById } from './owners';
 
 /** A persisted drone registration, as returned to API clients. */
 export interface DroneRegistrationRecord {
@@ -44,6 +45,13 @@ export interface DroneRegistrationFilter {
 export class DroneRegistrationAlreadyExistsError extends Error {
   constructor(registrationId: string) {
     super(`Drone registration ${registrationId} already exists`);
+  }
+}
+
+/** Thrown when creating a registration under an owner that doesn't exist. */
+export class DroneRegistrationOwnerNotFoundError extends Error {
+  constructor(ownerId: string) {
+    super(`Owner ${ownerId} not found`);
   }
 }
 
@@ -110,11 +118,16 @@ async function findOverlappingRegistration(
 }
 
 /**
- * Creates a new drone registration. Throws `OverlappingRegistrationError` if the date range
- * overlaps an existing registration for the same serial number, or
- * `DroneRegistrationAlreadyExistsError` if the id is taken.
+ * Creates a new drone registration. Throws `DroneRegistrationOwnerNotFoundError` if `ownerId`
+ * doesn't exist, `OverlappingRegistrationError` if the date range overlaps an existing
+ * registration for the same serial number, or `DroneRegistrationAlreadyExistsError` if the id is
+ * taken.
  */
 export async function insertDroneRegistration(input: CreateDroneRegistrationInput): Promise<DroneRegistrationRecord> {
+  if (!(await getOwnerById(input.ownerId))) {
+    throw new DroneRegistrationOwnerNotFoundError(input.ownerId);
+  }
+
   if (await findOverlappingRegistration(input.serialNumber, input.startDate, input.endDate)) {
     throw new OverlappingRegistrationError(input.serialNumber);
   }

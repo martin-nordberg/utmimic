@@ -229,6 +229,23 @@ describe('drone_registrations_service (end-to-end)', () => {
     expect(res.status).toBe(409);
   });
 
+  test('rejects registering a drone under a nonexistent owner', async () => {
+    const res = await app.request('/api/v1/drone-registrations', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        registrationId: 'it-reg-no-owner',
+        serialNumber: 'IT-SN-NO-OWNER',
+        make: 'DJI',
+        modelNumber: 'X',
+        ownerId: 'no-such-owner',
+        startDate: '2027-01-01',
+        endDate: '2027-02-01',
+      }),
+    });
+    expect(res.status).toBe(404);
+  });
+
   test('PATCHing a date into an overlap 409s', async () => {
     const res = await app.request('/api/v1/drone-registrations/it-reg-2', {
       method: 'PATCH',

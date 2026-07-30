@@ -3,6 +3,7 @@ import { createRouter } from '../openapi-router';
 import { getOwnerById } from '../repositories/owners';
 import {
   DroneRegistrationAlreadyExistsError,
+  DroneRegistrationOwnerNotFoundError,
   OverlappingRegistrationError,
   getActiveRegistrationBySerial,
   getDroneRegistrationById,
@@ -35,6 +36,7 @@ const createDroneRegistrationRoute = createRoute({
   },
   responses: {
     201: { content: { 'application/json': { schema: DroneRegistrationSchema } }, description: 'Registration created' },
+    404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Owner not found' },
     409: {
       content: { 'application/json': { schema: ErrorSchema } },
       description: 'Registration already exists, or overlaps an existing one for the same serial number',
@@ -48,6 +50,9 @@ droneRegistrationsRouter.openapi(createDroneRegistrationRoute, async (c) => {
     const registration = await insertDroneRegistration(body);
     return c.json(registration, 201);
   } catch (err) {
+    if (err instanceof DroneRegistrationOwnerNotFoundError) {
+      return c.json({ message: err.message }, 404);
+    }
     if (err instanceof DroneRegistrationAlreadyExistsError || err instanceof OverlappingRegistrationError) {
       return c.json({ message: err.message }, 409);
     }
