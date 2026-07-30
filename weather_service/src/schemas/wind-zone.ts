@@ -1,4 +1,5 @@
 import { z } from '@hono/zod-openapi';
+import { withSpatialFilter } from './common';
 import { PolygonSchema } from './geojson';
 
 /** State of a wind zone. */
@@ -47,17 +48,11 @@ export const WindForecastQuerySchema = z.object({
   at: z.iso.datetime().openapi({ example: '2026-07-25T18:00:00.000Z' }),
 });
 
-/** Query params identifying a point to test for polygon containment. */
-export const WindCurrentQuerySchema = z.object({
-  lat: z.coerce.number().openapi({ example: 47.62 }),
-  lon: z.coerce.number().openapi({ example: -122.35 }),
-});
+/** `/observed/current` query: point-or-extent lookup (see `withSpatialFilter`) against the latest (or as-of-`at`) observed report. */
+export const WindObservedCurrentQuerySchema = withSpatialFilter(WindLatestQuerySchema.shape);
 
-/** `/observed/current` query: point-in-polygon lookup against the latest (or as-of-`at`) observed report. */
-export const WindObservedCurrentQuerySchema = WindCurrentQuerySchema.extend(WindLatestQuerySchema.shape);
-
-/** `/forecast/current` query: point-in-polygon lookup against the forecast for a required `at`. */
-export const WindForecastCurrentQuerySchema = WindCurrentQuerySchema.extend(WindForecastQuerySchema.shape);
+/** `/forecast/current` query: point-or-extent lookup (see `withSpatialFilter`) against the forecast for a required `at`. */
+export const WindForecastCurrentQuerySchema = withSpatialFilter(WindForecastQuerySchema.shape);
 
 /** Query params for a zone's report history: a `from`/`to`/`limit` range, or a single `at` lookup. */
 export const WindHistoryQuerySchema = z.object({

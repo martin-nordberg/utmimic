@@ -125,6 +125,38 @@ describe('VisibilityObservedCurrentQuerySchema', () => {
   test('rejects a missing lat', () => {
     expect(VisibilityObservedCurrentQuerySchema.safeParse({ lon: '-122.35' }).success).toBe(false);
   });
+
+  test('accepts a complete extent with no point', () => {
+    const result = VisibilityObservedCurrentQuerySchema.safeParse({
+      lat1: '47.55',
+      lon1: '-122.45',
+      lat2: '47.70',
+      lon2: '-122.25',
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data).toEqual({ lat1: 47.55, lon1: -122.45, lat2: 47.7, lon2: -122.25 });
+  });
+
+  test('rejects both a point and an extent', () => {
+    const result = VisibilityObservedCurrentQuerySchema.safeParse({
+      lat: '47.62',
+      lon: '-122.35',
+      lat1: '47.55',
+      lon1: '-122.45',
+      lat2: '47.70',
+      lon2: '-122.25',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects a partial extent (missing lon2)', () => {
+    const result = VisibilityObservedCurrentQuerySchema.safeParse({ lat1: '47.55', lon1: '-122.45', lat2: '47.70' });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects neither a point nor an extent', () => {
+    expect(VisibilityObservedCurrentQuerySchema.safeParse({}).success).toBe(false);
+  });
 });
 
 describe('VisibilityForecastCurrentQuerySchema', () => {
@@ -139,5 +171,26 @@ describe('VisibilityForecastCurrentQuerySchema', () => {
       at: '2026-07-25T18:00:00.000Z',
     });
     expect(result.success).toBe(true);
+  });
+
+  test('accepts an extent with at', () => {
+    const result = VisibilityForecastCurrentQuerySchema.safeParse({
+      lat1: '47.55',
+      lon1: '-122.45',
+      lat2: '47.70',
+      lon2: '-122.25',
+      at: '2026-07-25T18:00:00.000Z',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('rejects an extent with no at', () => {
+    const result = VisibilityForecastCurrentQuerySchema.safeParse({
+      lat1: '47.55',
+      lon1: '-122.45',
+      lat2: '47.70',
+      lon2: '-122.25',
+    });
+    expect(result.success).toBe(false);
   });
 });

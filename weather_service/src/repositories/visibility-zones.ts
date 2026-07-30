@@ -1,5 +1,5 @@
 import { sql } from '../db';
-import { geomFromGeoJson, polygonSelect } from '../geo';
+import { geomFromGeoJson, polygonSelect, type SpatialFilter, spatialFilterCondition } from '../geo';
 import type { Polygon } from '../schemas/geojson';
 
 /** Visibility zone state values, matching the table's CHECK constraint. */
@@ -123,10 +123,9 @@ export async function listLatestObserved(
   return rows.map(mapRow);
 }
 
-/** Zone(s) whose latest (or as-of-`at`) observed polygon contains the given point, subject to the same staleness rule as `listLatestObserved`. */
+/** Zone(s) whose latest (or as-of-`at`) observed polygon matches the given spatial filter (point or extent), subject to the same staleness rule as `listLatestObserved`. */
 export async function listObservedCurrent(
-  lat: number,
-  lon: number,
+  filter: SpatialFilter,
   at: string | undefined,
   staleAfterMinutes: number,
 ): Promise<VisibilityReportRecord[]> {
@@ -139,7 +138,7 @@ export async function listObservedCurrent(
           WHERE recorded_at <= ${at}::timestamptz
           ORDER BY zone_id, recorded_at DESC
         ) latest
-        WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326))
+        WHERE ${spatialFilterCondition(filter)}
       `
     : await sql<VisibilityReportRow[]>`
         SELECT report_id, zone_id, recorded_at, state, ceiling_ft, ${polygonSelect}, ingested_at
@@ -149,7 +148,7 @@ export async function listObservedCurrent(
           WHERE recorded_at >= now() - make_interval(mins => ${staleAfterMinutes})
           ORDER BY zone_id, recorded_at DESC
         ) latest
-        WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326))
+        WHERE ${spatialFilterCondition(filter)}
       `;
   return rows.map(mapRow);
 }
@@ -207,8 +206,8 @@ export async function listLatestForecast(at: string): Promise<VisibilityReportRe
   return rows.map(mapRow);
 }
 
-/** Zone(s) whose forecast polygon (for the closest `recordedAt` to `at`) contains the given point. */
-export async function listForecastCurrent(lat: number, lon: number, at: string): Promise<VisibilityReportRecord[]> {
+/** Zone(s) whose forecast polygon (for the closest `recordedAt` to `at`) matches the given spatial filter (point or extent). */
+export async function listForecastCurrent(filter: SpatialFilter, at: string): Promise<VisibilityReportRecord[]> {
   const rows = await sql<VisibilityReportRow[]>`
     SELECT report_id, zone_id, recorded_at, state, ceiling_ft, ${polygonSelect}, ingested_at
     FROM (
@@ -216,7 +215,7 @@ export async function listForecastCurrent(lat: number, lon: number, at: string):
       FROM weather.visibility_forecast_reports
       ORDER BY zone_id, abs(extract(epoch FROM recorded_at - ${at}::timestamptz)), ingested_at DESC
     ) closest
-    WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326))
+    WHERE ${spatialFilterCondition(filter)}
   `;
   return rows.map(mapRow);
 }

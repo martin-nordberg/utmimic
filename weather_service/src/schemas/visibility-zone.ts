@@ -1,4 +1,5 @@
 import { z } from '@hono/zod-openapi';
+import { withSpatialFilter } from './common';
 import { PolygonSchema } from './geojson';
 
 /** State of a visibility zone. */
@@ -54,21 +55,11 @@ export const VisibilityForecastQuerySchema = z.object({
   at: z.iso.datetime().openapi({ example: '2026-07-25T18:00:00.000Z' }),
 });
 
-/** Query params identifying a point to test for polygon containment. */
-export const VisibilityCurrentQuerySchema = z.object({
-  lat: z.coerce.number().openapi({ example: 47.62 }),
-  lon: z.coerce.number().openapi({ example: -122.35 }),
-});
+/** `/observed/current` query: point-or-extent lookup (see `withSpatialFilter`) against the latest (or as-of-`at`) observed report. */
+export const VisibilityObservedCurrentQuerySchema = withSpatialFilter(VisibilityLatestQuerySchema.shape);
 
-/** `/observed/current` query: point-in-polygon lookup against the latest (or as-of-`at`) observed report. */
-export const VisibilityObservedCurrentQuerySchema = VisibilityCurrentQuerySchema.extend(
-  VisibilityLatestQuerySchema.shape,
-);
-
-/** `/forecast/current` query: point-in-polygon lookup against the forecast for a required `at`. */
-export const VisibilityForecastCurrentQuerySchema = VisibilityCurrentQuerySchema.extend(
-  VisibilityForecastQuerySchema.shape,
-);
+/** `/forecast/current` query: point-or-extent lookup (see `withSpatialFilter`) against the forecast for a required `at`. */
+export const VisibilityForecastCurrentQuerySchema = withSpatialFilter(VisibilityForecastQuerySchema.shape);
 
 /** Query params for a zone's report history: a `from`/`to`/`limit` range, or a single `at` lookup. */
 export const VisibilityHistoryQuerySchema = z.object({

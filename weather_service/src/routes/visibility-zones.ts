@@ -1,5 +1,6 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import { config } from '../config';
+import { toSpatialFilter } from '../geo';
 import { createRouter } from '../openapi-router';
 import {
   getZoneObservedLatest,
@@ -107,7 +108,7 @@ visibilityZonesRouter.openapi(listObservedRoute, async (c) => {
   return c.json(reports, 200);
 });
 
-/** GET /observed/current — zone(s) whose observed polygon contains a point. */
+/** GET /observed/current — zone(s) whose observed polygon contains a point or intersects an extent. */
 const observedCurrentRoute = createRoute({
   method: 'get',
   path: '/observed/current',
@@ -115,14 +116,14 @@ const observedCurrentRoute = createRoute({
   responses: {
     200: {
       content: { 'application/json': { schema: z.array(VisibilityReportSchema) } },
-      description: 'Zone(s) whose observed polygon contains the point, latest or as of `at`',
+      description: 'Zone(s) whose observed polygon contains the point or intersects the extent, latest or as of `at`',
     },
   },
 });
 
 visibilityZonesRouter.openapi(observedCurrentRoute, async (c) => {
-  const { lat, lon, at } = c.req.valid('query');
-  const reports = await listObservedCurrent(lat, lon, at, config.ZONE_STALE_AFTER_MINUTES);
+  const { at, ...query } = c.req.valid('query');
+  const reports = await listObservedCurrent(toSpatialFilter(query), at, config.ZONE_STALE_AFTER_MINUTES);
   return c.json(reports, 200);
 });
 
@@ -145,7 +146,7 @@ visibilityZonesRouter.openapi(listForecastRoute, async (c) => {
   return c.json(reports, 200);
 });
 
-/** GET /forecast/current — zone(s) whose forecast polygon (for a required `at`) contains a point. */
+/** GET /forecast/current — zone(s) whose forecast polygon (for a required `at`) contains a point or intersects an extent. */
 const forecastCurrentRoute = createRoute({
   method: 'get',
   path: '/forecast/current',
@@ -153,14 +154,14 @@ const forecastCurrentRoute = createRoute({
   responses: {
     200: {
       content: { 'application/json': { schema: z.array(VisibilityReportSchema) } },
-      description: 'Zone(s) whose forecast polygon (closest to `at`) contains the point',
+      description: 'Zone(s) whose forecast polygon (closest to `at`) contains the point or intersects the extent',
     },
   },
 });
 
 visibilityZonesRouter.openapi(forecastCurrentRoute, async (c) => {
-  const { lat, lon, at } = c.req.valid('query');
-  const reports = await listForecastCurrent(lat, lon, at);
+  const { at, ...query } = c.req.valid('query');
+  const reports = await listForecastCurrent(toSpatialFilter(query), at);
   return c.json(reports, 200);
 });
 

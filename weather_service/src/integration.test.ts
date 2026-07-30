@@ -126,6 +126,38 @@ describe('weather_service (end-to-end)', () => {
       expect(await jsonBody<unknown[]>(outsideRes)).toEqual([]);
     });
 
+    test('GET /observed/current filters by extent intersection, order-independent', async () => {
+      const intersecting = 'lat1=47.60&lon1=-122.43&lat2=47.64&lon2=-122.39';
+      const intersectingRes = await app.request(`/api/v1/visibility-zones/observed/current?${intersecting}`);
+      const intersectingZoneIds = (await jsonBody<{ zoneId: string }[]>(intersectingRes)).map((r) => r.zoneId);
+      expect(intersectingZoneIds).toContain('it-vis-fresh');
+
+      // Same extent with both corners' lat and lon swapped — should resolve to the same result,
+      // proving lat1/lon1/lat2/lon2 are normalized rather than requiring a specific corner order.
+      const swapped = 'lat1=47.64&lon1=-122.39&lat2=47.60&lon2=-122.43';
+      const swappedRes = await app.request(`/api/v1/visibility-zones/observed/current?${swapped}`);
+      const swappedZoneIds = (await jsonBody<{ zoneId: string }[]>(swappedRes)).map((r) => r.zoneId);
+      expect(swappedZoneIds).toEqual(intersectingZoneIds);
+
+      const missingRes = await app.request(
+        '/api/v1/visibility-zones/observed/current?lat1=0&lon1=0&lat2=1&lon2=1',
+      );
+      expect(await jsonBody<unknown[]>(missingRes)).toEqual([]);
+    });
+
+    test('GET /observed/current rejects a point and an extent together, or neither', async () => {
+      const bothRes = await app.request(
+        `/api/v1/visibility-zones/observed/current?lat=${pointInside.lat}&lon=${pointInside.lon}&lat1=0&lon1=0&lat2=1&lon2=1`,
+      );
+      expect(bothRes.status).toBe(400);
+
+      const neitherRes = await app.request('/api/v1/visibility-zones/observed/current');
+      expect(neitherRes.status).toBe(400);
+
+      const partialRes = await app.request('/api/v1/visibility-zones/observed/current?lat1=0&lon1=0&lat2=1');
+      expect(partialRes.status).toBe(400);
+    });
+
     test('GET /forecast requires at', async () => {
       const res = await app.request('/api/v1/visibility-zones/forecast');
       expect(res.status).toBe(400);
@@ -173,6 +205,19 @@ describe('weather_service (end-to-end)', () => {
 
       const missingRes = await app.request('/api/v1/wind-zones/no-such-zone/observed-reports/latest');
       expect(missingRes.status).toBe(404);
+    });
+
+    test('observed/current accepts an extent and rejects a point-and-extent combination', async () => {
+      const extentRes = await app.request(
+        '/api/v1/wind-zones/observed/current?lat1=47.60&lon1=-122.43&lat2=47.64&lon2=-122.39',
+      );
+      const zoneIds = (await jsonBody<{ zoneId: string }[]>(extentRes)).map((r) => r.zoneId);
+      expect(zoneIds).toContain('it-wind-1');
+
+      const bothRes = await app.request(
+        '/api/v1/wind-zones/observed/current?lat=47.62&lon=-122.41&lat1=0&lon1=0&lat2=1&lon2=1',
+      );
+      expect(bothRes.status).toBe(400);
     });
   });
 
