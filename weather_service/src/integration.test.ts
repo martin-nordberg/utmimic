@@ -175,4 +175,43 @@ describe('weather_service (end-to-end)', () => {
       expect(missingRes.status).toBe(404);
     });
   });
+
+  describe('sun times', () => {
+    test('validation failures return { message } for a missing date', async () => {
+      const res = await app.request('/api/v1/sun-times?lat=47.6062&lon=-122.3321');
+      expect(res.status).toBe(400);
+      const body = await jsonBody<{ message: string }>(res);
+      expect(typeof body.message).toBe('string');
+    });
+
+    test('returns morning civil twilight, sunrise, sunset, and evening civil twilight in order', async () => {
+      const res = await app.request('/api/v1/sun-times?date=2026-07-30&lat=47.6062&lon=-122.3321');
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{
+        morningCivilTwilightBeginsAt: string;
+        sunriseAt: string;
+        sunsetAt: string;
+        eveningCivilTwilightEndsAt: string;
+      }>(res);
+
+      const dawn = new Date(body.morningCivilTwilightBeginsAt).getTime();
+      const sunrise = new Date(body.sunriseAt).getTime();
+      const sunset = new Date(body.sunsetAt).getTime();
+      const dusk = new Date(body.eveningCivilTwilightEndsAt).getTime();
+      expect(dawn).toBeLessThan(sunrise);
+      expect(sunrise).toBeLessThan(sunset);
+      expect(sunset).toBeLessThan(dusk);
+    });
+
+    test('returns null fields during polar day instead of failing', async () => {
+      const res = await app.request('/api/v1/sun-times?date=2026-06-21&lat=78.2232&lon=15.6267');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        morningCivilTwilightBeginsAt: null,
+        sunriseAt: null,
+        sunsetAt: null,
+        eveningCivilTwilightEndsAt: null,
+      });
+    });
+  });
 });

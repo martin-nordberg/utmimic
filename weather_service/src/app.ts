@@ -2,6 +2,7 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { HTTPException } from 'hono/http-exception';
 import { logger } from './logger';
 import { createRouter } from './openapi-router';
+import { sunTimesRouter } from './routes/sun-times';
 import { visibilityZonesRouter } from './routes/visibility-zones';
 import { windZonesRouter } from './routes/wind-zones';
 
@@ -61,3 +62,4 @@ app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
 app.route('/api/v1/visibility-zones', visibilityZonesRouter);
 app.route('/api/v1/wind-zones', windZonesRouter);
+app.route('/api/v1/sun-times', sunTimesRouter);

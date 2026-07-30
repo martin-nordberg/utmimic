@@ -12,6 +12,8 @@ This service reuses the project layout, middleware, error-handling, and migratio
 
 Everything else in the spec's [Open questions](/modules/weather_service/#open-questions) (per-kind staleness windows, forecast staleness, polygon validity, auth, retention, batch limits, the weather simulator itself) is fine to leave as-is and revisit later — none of it blocks a first working version.
 
+Phases 1–10 below are complete: the service is implemented, tested, and containerized as described in the spec. Phase 11 is a net-new addition — the `/sun-times` endpoint — built on top of that finished foundation.
+
 ## Phase 1 — Project scaffolding
 
 Goal: an empty Hono app that starts, listens, and answers `/healthz`.
@@ -127,3 +129,35 @@ Following the pattern in `live_flight_log_service/dockerfile` / `build-docker.sh
 
 - Update [`weather_service.md`](/modules/weather_service/) to match implementation reality: remove the "Preliminary — no tables exist yet" caveat and the "Preliminary route sketch" qualifier, and firm up any other detail that was marked preliminary once real code exists.
 - Add `{ label: 'Weather Service', slug: 'plans/weather_service_plan' }` to the "Implementation Plans" section of `documentation/astro.config.mjs`'s sidebar, alongside the existing Sensor/Live Flight Log Service entries (the "Modules" sidebar entry for this service is already live).
+
+## Phase 11 — Sun times endpoint
+
+New capability: `GET /api/v1/sun-times`, per the spec's [API](/modules/weather_service/#api) section. This is a pure computation with no backing table — no migration, no repository layer, and no config changes (FAA civil twilight is a fixed -6° sun angle, not something to make configurable).
+
+Uses the `suncalc` package (verified: `suncalc@2.0.1`, types via `@types/suncalc@1.9.2`) rather than hand-rolling the solar-position math — see the spec's [Technologies](/modules/weather_service/#technologies) note on why this one isn't treated like the hand-rolled GeoJSON schema. `suncalc` has no default export — import it as `import * as SunCalc from 'suncalc'`. `SunCalc.getTimes(date, lat, lon)` returns an object whose `dawn`/`sunrise`/`sunset`/`dusk` fields map directly onto this endpoint's four outputs (confirmed against a Seattle date: `dawn` (12:08) precedes `sunrise` (12:44), which precedes `sunset` (03:46 next day UTC), which precedes `dusk` (04:22) — exactly the begin-morning-civil-twilight → sunrise → sunset → end-evening-civil-twilight ordering the spec calls for). At polar latitudes where an event doesn't occur, `suncalc` returns `null` for that field directly (not an `Invalid Date`) — confirmed against Svalbard on both a polar-day and a polar-night date, so passing `null` straight through to the response needs no extra detection logic.
+
+- `package.json`: add `suncalc` to `dependencies` and `@types/suncalc` to `devDependencies`.
+- `src/astronomy.ts` — a single function, e.g. `getSunTimes(date: Date, lat: number, lon: number)`, wrapping `SunCalc.getTimes` and mapping its fields to this service's names:
+  ```ts
+  {
+    morningCivilTwilightBeginsAt: dawn,
+    sunriseAt: sunrise,
+    sunsetAt: sunset,
+    eveningCivilTwilightEndsAt: dusk,
+  }
+  ```
+  Each field is `Date | null` at this layer — `null` passed through as-is, a non-null `Date` converted with `.toISOString()`.
+- `src/schemas/sun-times.ts`:
+  - `SunTimesQuerySchema`: `date: z.iso.date()` (calendar date, `YYYY-MM-DD`), `lat: z.coerce.number()`, `lon: z.coerce.number()` — same unbounded-range convention as the zone `.../current` query schemas (see the spec's Open Questions).
+  - `SunTimesSchema`: the four fields above, each `z.iso.datetime().nullable()`.
+- `src/routes/sun-times.ts` — a single `GET /` route (no zone param, no repository — calls `astronomy.ts` directly from the handler), mounted in `src/app.ts` at `/api/v1/sun-times` alongside the two zone routers. Parse `date` (`YYYY-MM-DD`) as UTC midnight (`new Date(`${date}T00:00:00Z`)`) before passing to `getSunTimes`.
+- Verify: `curl 'localhost:8000/api/v1/sun-times?date=2026-07-30&lat=47.6062&lon=-122.3321'` returns the four ISO timestamps in the dawn < sunrise < sunset < dusk order; a polar-latitude request (e.g. `lat=78.2232&lon=15.6267` on a solstice date) returns all four fields as `null` rather than erroring; `/openapi.json` includes the new path.
+
+### Testing
+
+- Unit tests for `src/astronomy.ts`: the Seattle-date ordering case and the polar-day/polar-night null case above, plus `src/schemas/sun-times.test.ts` for `date`/`lat`/`lon` validation (rejects a non-`YYYY-MM-DD` date, coerces numeric query strings).
+- Add a `describe('sun times', ...)` block to `src/integration.test.ts` covering the same two cases end-to-end through `app.request(...)`, plus the existing Content-Type-guard/validation-error-shape conventions (though `/sun-times` is a `GET`-only route, so the Content-Type guard doesn't apply to it — only the validation-error-shape case is relevant here).
+
+### Docs follow-up
+
+Once implemented, update [`weather_service.md`](/modules/weather_service/) the same way Phase 10 did for the rest of the service: nothing here is marked "preliminary," so this is just confirming the spec still matches reality (field mapping, `null` behavior, `suncalc` version) rather than removing caveats.

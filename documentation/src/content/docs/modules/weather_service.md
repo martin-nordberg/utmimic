@@ -17,6 +17,8 @@ Each kind of zone has two flavors of report, exposed through **distinct endpoint
 - **Observed** — the actual state at `recordedAt`. Supports a "latest" convenience query, since there's always one unambiguous most-recent observation — though "latest" only counts a zone as still existing if it has an observed report within the past 30 minutes (see [API](#api)); older zones are treated as dissipated.
 - **Forecast** — a predicted state for a `recordedAt` that may be in the future, issued at `ingestedAt`. Has no "latest": a zone can have several forecasts outstanding at once for different future times, so every forecast query requires an explicit target time instead.
 
+Independently of the zone/report model above, this service also answers a **sun times** query: given a date and a point, it returns the FAA-relevant sunrise, sunset, and civil twilight boundary times for that location (see [API](#api)). Unlike everything else in this service, it's a pure computation with no backing table — it's included here because it's the same kind of location/date-relevant environmental data the rest of this service provides, not because it touches the `weather` schema.
+
 It is the sole owner of the `weather` schema: no other module reads or writes those tables directly, and this service also owns the schema's migrations (see [Migrations](#migrations)).
 
 See the [implementation plan](/plans/weather_service_plan/) for the ordered build sequence for this module.
@@ -31,6 +33,7 @@ Same stack as [Sensor Flight Log Service](/modules/sensor_flight_log_service/) a
 * **@hono/zod-openapi** for request/response validation against Zod schemas plus OpenAPI generation from the same definitions (superset of `@hono/zod-validator`)
 * **@paralleldrive/cuid2** for any unique IDs that need generation; clients generate IDs themselves where feasible (e.g. an idempotency key on ingest — see [API](#api))
 * **Bun.sql** for PostgreSQL access, including PostGIS functions (`ST_GeomFromGeoJSON`, `ST_AsGeoJSON`) to convert between the wire format and the stored `geometry` column — no ORM/spatial library needed for this
+* **suncalc** for the sunrise/sunset/civil-twilight time calculations behind `/sun-times` (see [API](#api)) — solar-position math (declination, equation of time, atmospheric refraction) is real numerical-algorithm territory, unlike the GeoJSON `Polygon` schema above, so this is a well-established library rather than a hand-rolled formula
 * **Pino** for structured (JSON) logging to stdout
 * Packaged in a Docker container running a Bun native executable (`bun build --compile`)
 * **Bun.test** for unit testing
@@ -169,6 +172,7 @@ Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/do
 | `GET` | `/api/v1/wind-zones/forecast` | ″ |
 | `GET` | `/api/v1/wind-zones/forecast/current` | ″ |
 | `GET` | `/api/v1/wind-zones/{zoneId}/forecast-reports` | ″ |
+| `GET` | `/api/v1/sun-times` | FAA civil twilight boundaries, sunrise, and sunset for a date/lat/lon |
 | `GET` | `/healthz` | Liveness/readiness check for container orchestration |
 | `GET` | `/openapi.json` | Generated OpenAPI document |
 | `GET` | `/docs` | Swagger UI over `/openapi.json` |
@@ -199,6 +203,19 @@ Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/do
 `GET /visibility-zones/forecast` and `.../forecast/current` require `at` (there's no default) and return, per zone, the forecast whose `recordedAt` is closest to `at`; if a zone has multiple forecasts targeting that same `recordedAt` (re-forecasts issued at different times), the most recently issued (`ingestedAt`) wins.
 
 `GET /{...}-zones/{zoneId}/{observed,forecast}-reports` supports `from`/`to` (ISO 8601) and `limit` for a range, or `at` for a single point-in-time lookup using the same "as of" (observed) / "closest `recordedAt`, latest `ingestedAt` wins" (forecast) rules as above.
+
+`GET /sun-times?date={date}&lat={lat}&lon={lon}` returns four computed instants for that date and location: the beginning of morning civil twilight, sunrise, sunset, and the end of evening civil twilight — the FAA's definitions (14 CFR 1.1 defines "night" as the period between the end of evening civil twilight and the beginning of morning civil twilight, which is what governs Part 107 anti-collision-lighting and logged-night-currency rules for drone operations). `date` is an ISO 8601 calendar date (`YYYY-MM-DD`), interpreted as UTC; `lat`/`lon` are the same unvalidated-range coercions as the zone `.../current` endpoints. Unlike every other endpoint in this service, `/sun-times` never touches the database — the times are computed on demand by the `suncalc` library rather than read from a table, so there's no ingest, no zone, and no schema migration involved:
+
+```json
+{
+  "morningCivilTwilightBeginsAt": "2026-07-30T12:08:12.821Z",
+  "sunriseAt": "2026-07-30T12:44:35.217Z",
+  "sunsetAt": "2026-07-31T03:46:11.609Z",
+  "eveningCivilTwilightEndsAt": "2026-07-31T04:22:23.394Z"
+}
+```
+
+At latitudes/dates where an event doesn't occur — polar day (sun never sets) or polar night (sun never rises or never climbs above -6°) — the corresponding field(s) are `null` rather than the request failing; `suncalc` reports these cases as `null` itself, so no extra edge-case detection is needed beyond passing that through.
 
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
 
@@ -254,3 +271,5 @@ Unit tests use `Bun.test`. Integration tests run against the shared dev/test Pos
 - Retention/archival policy for old reports (TimescaleDB compression/retention policies are a natural fit once volume matters, especially for forecasts, which are pure write-once history once their `recordedAt` has passed).
 - Batch size limits on the ingest endpoints.
 - The producer of this data (a Weather Simulator module) isn't designed yet — see the architecture overview.
+- `/sun-times` only exposes civil twilight; `suncalc` also computes nautical/astronomical twilight and moonrise/moonset, which are out of scope for now since FAA civil twilight is the only requirement driving this endpoint. Revisit if a consumer needs them.
+- `/sun-times`'s `lat`/`lon` aren't range-validated, same as the zone `.../current` endpoints' `lat`/`lon`; an out-of-range value just produces whatever `suncalc` does with it rather than a `400`.
