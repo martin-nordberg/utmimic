@@ -6,3 +6,13 @@ export const ErrorSchema = z
     message: z.string().openapi({ example: 'No positions recorded for drone FA1AAAAA00000001' }),
   })
   .openapi('Error');
+
+// Exclusive of the poles themselves: a latitude of exactly ±90 makes longitude degenerate
+// (every meridian meets at the pole), which would otherwise need special-casing throughout the
+// spatial queries — same rationale as weather_service/flight_authorizations_service's identical
+// schema.
+/** Latitude in degrees, exclusive of the poles: `-90 < lat < 90`. Shared by every latitude field this service accepts (a position report's coordinates). */
+export const LatitudeSchema = z.number().gt(-90).lt(90);
+
+/** Longitude in degrees, inclusive of the antimeridian: `-180 <= lon <= 180`. Shared by every longitude field this service accepts. */
+export const LongitudeSchema = z.number().gte(-180).lte(180);

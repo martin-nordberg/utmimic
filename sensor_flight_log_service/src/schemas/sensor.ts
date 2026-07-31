@@ -1,4 +1,5 @@
 import { z } from '@hono/zod-openapi';
+import { LatitudeSchema, LongitudeSchema } from './common';
 
 /** Lifecycle status of a sensor. */
 export const SensorStatusSchema = z.enum(['online', 'offline']).openapi('SensorStatus');
@@ -20,8 +21,8 @@ export const SensorSchema = z
       .string()
       .nullable()
       .openapi({ example: 'Mast-mounted, north side of the ridge' }),
-    latitude: z.number().openapi({ example: 47.63 }),
-    longitude: z.number().openapi({ example: -122.36 }),
+    latitude: LatitudeSchema.openapi({ example: 47.63 }),
+    longitude: LongitudeSchema.openapi({ example: -122.36 }),
     sensingRadiusMeters: z.number().positive().openapi({ example: 5000 }),
     status: SensorStatusSchema,
     createdAt: z.iso.datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
@@ -38,8 +39,8 @@ export const CreateSensorSchema = z
       .string()
       .optional()
       .openapi({ example: 'Mast-mounted, north side of the ridge' }),
-    latitude: z.number().openapi({ example: 47.63 }),
-    longitude: z.number().openapi({ example: -122.36 }),
+    latitude: LatitudeSchema.openapi({ example: 47.63 }),
+    longitude: LongitudeSchema.openapi({ example: -122.36 }),
     sensingRadiusMeters: z.number().positive().openapi({ example: 5000 }),
     status: SensorStatusSchema.optional().default('offline'),
   })
@@ -50,8 +51,8 @@ export const UpdateSensorSchema = z
   .object({
     name: z.string().min(1).optional(),
     notes: z.string().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
+    latitude: LatitudeSchema.optional(),
+    longitude: LongitudeSchema.optional(),
     sensingRadiusMeters: z.number().positive().optional(),
     status: SensorStatusSchema.optional(),
   })

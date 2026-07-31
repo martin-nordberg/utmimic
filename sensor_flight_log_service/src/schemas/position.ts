@@ -1,4 +1,5 @@
 import { z } from '@hono/zod-openapi';
+import { LatitudeSchema, LongitudeSchema } from './common';
 
 /** Path param schema for routes scoped to a drone's serial number. */
 export const DroneSerialParamSchema = z.object({
@@ -13,8 +14,8 @@ const positionReportFields = {
   reportId: z.string().min(1).openapi({ example: 'clh6z9k9x0000qzrm' }),
   sensorId: z.string().min(1).openapi({ example: 'clh6z8h1x0000qzrm' }),
   recordedAt: z.iso.datetime().openapi({ example: '2026-07-25T14:03:11.000Z' }),
-  latitude: z.number().openapi({ example: 47.6205 }),
-  longitude: z.number().openapi({ example: -122.3493 }),
+  latitude: LatitudeSchema.openapi({ example: 47.6205 }),
+  longitude: LongitudeSchema.openapi({ example: -122.3493 }),
   altitudeFt: z.number().openapi({ example: 412.5 }),
 };
 

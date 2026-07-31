@@ -31,6 +31,20 @@ describe('CreatePositionReportSchema', () => {
   test('rejects the wrong type for a numeric field', () => {
     expect(CreatePositionReportSchema.safeParse({ ...validReport, altitudeFt: 'high' }).success).toBe(false);
   });
+
+  test('rejects a latitude of exactly 90 or -90 (exclusive)', () => {
+    expect(CreatePositionReportSchema.safeParse({ ...validReport, latitude: 90 }).success).toBe(false);
+    expect(CreatePositionReportSchema.safeParse({ ...validReport, latitude: -90 }).success).toBe(false);
+  });
+
+  test('accepts a longitude of exactly 180 or -180 (inclusive)', () => {
+    expect(CreatePositionReportSchema.safeParse({ ...validReport, longitude: 180 }).success).toBe(true);
+    expect(CreatePositionReportSchema.safeParse({ ...validReport, longitude: -180 }).success).toBe(true);
+  });
+
+  test('rejects a longitude beyond ±180', () => {
+    expect(CreatePositionReportSchema.safeParse({ ...validReport, longitude: 200 }).success).toBe(false);
+  });
 });
 
 describe('CreatePositionReportsBodySchema', () => {
