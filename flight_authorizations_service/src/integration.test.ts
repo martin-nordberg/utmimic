@@ -506,6 +506,24 @@ describe('flight_authorizations_service (end-to-end)', () => {
       expect((await jsonBody<unknown[]>(miss)).length).toBe(0);
     });
 
+    test("a waypoint's radiusMeters buffers in real meters, not degrees", async () => {
+      // waypointsPlan's first waypoint is at (47.615, -122.415) with radiusMeters: 50. A tight
+      // box around that exact point should hit; a box ~250km away should miss — if the buffer
+      // were mistakenly computed in degrees (a plain ST_Buffer on a geometry(Point, 4326) column
+      // treats its radius argument as the geometry's own coordinate unit, not meters), a 50-unit
+      // buffer would be enormous and the distant box would wrongly hit too.
+      const tight = await app.request(
+        '/api/v1/flight-plans/intersecting?minLat=47.614&minLon=-122.416&maxLat=47.616&maxLon=-122.414',
+      );
+      expect(tight.status).toBe(200);
+      const tightIds = (await jsonBody<{ flightPlanId: string }[]>(tight)).map((p) => p.flightPlanId);
+      expect(tightIds).toContain(waypointsPlan.flightPlanId);
+
+      const distant = await app.request('/api/v1/flight-plans/intersecting?minLat=45&minLon=-120&maxLat=46&maxLon=-119');
+      const distantIds = (await jsonBody<{ flightPlanId: string }[]>(distant)).map((p) => p.flightPlanId);
+      expect(distantIds).not.toContain(waypointsPlan.flightPlanId);
+    });
+
     test('intersecting altitudeFt band is exclusive of altitudeMinFt and inclusive of altitudeMaxFt', async () => {
       // A dedicated single-waypoint plan, rather than reusing waypointsPlan (which has a second
       // waypoint with a different altitude band that would otherwise also satisfy some of these

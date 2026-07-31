@@ -25,7 +25,8 @@ export function containsPoint(lat: number, lon: number) {
 }
 
 // Takes the geometry expression as a fragment (produced by a plain `sql` tag, e.g. `sql\`area\``
-// or `sql\`ST_Buffer(point, radius_meters)\``) rather than hardcoding a column name, since this
+// or `sql\`ST_Buffer(point::geography, radius_meters)::geometry\``) rather than hardcoding a
+// column name, since this
 // service has three different geometries an "intersecting" query runs against:
 // airspace_authorizations.area, flight_plans.polygon_area, and a per-waypoint buffered cylinder.
 // Bun's SQL driver inlines a nested `sql` fragment as raw SQL when interpolated into another one

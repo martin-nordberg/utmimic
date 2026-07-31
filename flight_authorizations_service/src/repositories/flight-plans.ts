@@ -349,8 +349,13 @@ export async function updateFlightPlan(flightPlanId: string, patch: FlightPlanPa
 /**
  * Flight plan(s) whose shape intersects the given lat/lon bounding box: `'polygon'` plans via
  * their `polygonArea`, `'waypoints'` plans if any waypoint's buffered cylinder
- * (`ST_Buffer(point, radiusMeters)`, computed at query time) intersects. `altitudeFt`/`activeAt`
- * are optional; there's no `status` filter, since flight plans don't have one.
+ * (`ST_Buffer(point::geography, radiusMeters)`, computed at query time) intersects.
+ * `radiusMeters` is buffered in `geography` space rather than directly on the `geometry`
+ * column — a plain `ST_Buffer` on a `geometry(Point, 4326)` treats the radius as *degrees*, not
+ * meters, since the geometry's coordinate system is degree-based; `geography` buffers using
+ * real-world meters, then gets cast back to `geometry` to intersect with the envelope.
+ * `altitudeFt`/`activeAt` are optional; there's no `status` filter, since flight plans don't
+ * have one.
  */
 export async function listIntersectingFlightPlans(
   minLat: number,
@@ -386,7 +391,7 @@ export async function listIntersectingFlightPlans(
       AND EXISTS (
         SELECT 1 FROM flight_authorizations.flight_plan_waypoints w
         WHERE w.flight_plan_id = fp.flight_plan_id
-          AND ${intersectsEnvelope(sql`ST_Buffer(w.point, w.radius_meters)`, minLat, minLon, maxLat, maxLon)}
+          AND ${intersectsEnvelope(sql`ST_Buffer(w.point::geography, w.radius_meters)::geometry`, minLat, minLon, maxLat, maxLon)}
           AND (
             ${altitudeFt ?? null}::double precision IS NULL
             OR (

@@ -261,7 +261,7 @@ A new authorization always starts `status: "proposed"` (not settable at creation
 `GET /flight-plans/intersecting?minLat={..}&minLon={..}&maxLat={..}&maxLon={..}&altitudeFt={..}&activeAt={..}` finds flight plans whose shape intersects the bounding box — handled differently per `planType`, since only one of them has a single polygon to test:
 
 - `'polygon'` plans: `ST_Intersects(polygon_area, envelope)`, optionally also requiring `polygonMaxAltitudeFt >= altitudeFt` when `altitudeFt` is given (floor is implicitly ground).
-- `'waypoints'` plans: intersects if *any* of the plan's waypoints has `ST_Intersects(ST_Buffer(point, radius_meters), envelope)`, optionally also requiring `altitudeFt` to fall within that waypoint's `(altitudeMinFt, altitudeMaxFt]` band.
+- `'waypoints'` plans: intersects if *any* of the plan's waypoints has `ST_Intersects(ST_Buffer(point::geography, radius_meters)::geometry, envelope)`, optionally also requiring `altitudeFt` to fall within that waypoint's `(altitudeMinFt, altitudeMaxFt]` band. The `::geography` cast matters: buffering the plain `geometry(Point, 4326)` column directly would treat `radius_meters` as *degrees* (its coordinate system's native unit), not meters — `geography`'s buffer is meters-correct, and the result is cast back to `geometry` to intersect with the envelope.
 
 `altitudeFt` and `activeAt` are both optional, same "omit to not filter on it" convention as the other spatial endpoints. There's no `status` parameter here — flight plans don't have a `status` field (see [Data model](#data-model)).
 
