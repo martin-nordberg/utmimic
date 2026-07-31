@@ -76,10 +76,17 @@ export class PilotNotFoundError extends Error {
   }
 }
 
-/** Thrown when a `status` change is attempted on a waiver that's already `'rescinded'` — terminal, per the spec. */
+/** Thrown when any change is attempted on a waiver that's already `'rescinded'` — fully immutable, per the spec. */
 export class RescindedIsTerminalError extends Error {
   constructor(waiverId: string) {
-    super(`Waiver ${waiverId} is rescinded and cannot change status further`);
+    super(`Waiver ${waiverId} is rescinded and cannot be modified further`);
+  }
+}
+
+/** Thrown when a patch other than a pure `status: 'rescinded'` transition is attempted on an already-`'approved'` waiver. */
+export class ApprovedIsImmutableError extends Error {
+  constructor(waiverId: string) {
+    super(`Waiver ${waiverId} is approved and can only be rescinded, not otherwise modified`);
   }
 }
 
@@ -178,8 +185,10 @@ export async function getWaiverById(waiverId: string): Promise<WaiverRecord | nu
 }
 
 /**
- * Applies a partial update to a waiver, or null if it doesn't exist. Throws
- * `RescindedIsTerminalError` if a `status` change is attempted on an already-`'rescinded'` row. A
+ * Applies a partial update to a waiver, or null if it doesn't exist. Enforces a lifecycle gate: a
+ * `'proposed'` waiver accepts any patch; an `'approved'` one only accepts a pure `status:
+ * 'rescinded'` transition (no other field in the same patch) — throwing `ApprovedIsImmutableError`
+ * otherwise; a `'rescinded'` one accepts nothing at all — throwing `RescindedIsTerminalError`. A
  * transition to `'rescinded'` stamps `rescindedAt` server-side.
  */
 export async function updateWaiver(waiverId: string, patch: WaiverPatch): Promise<WaiverRecord | null> {
@@ -187,13 +196,16 @@ export async function updateWaiver(waiverId: string, patch: WaiverPatch): Promis
   if (!existing) return null;
 
   const rescinding = patch.status === 'rescinded';
-  const changingStatus = patch.status !== undefined;
+  // Whether this patch touches anything besides `status` — the only kind of patch an 'approved'
+  // waiver still accepts is a pure rescind, nothing else.
+  const touchesOtherFields = patch.conditions !== undefined || patch.startTime !== undefined || patch.endTime !== undefined;
+  const rescindingOnly = rescinding && !touchesOtherFields;
 
-  // The "rescinded is terminal" guard lives in the UPDATE's WHERE clause, not as a separate
-  // pre-check against `existing.status` above — that would read-then-write with a gap in
-  // between, letting two concurrent PATCHes both pass the check before either commits. Gating
-  // the row match itself makes Postgres's row lock resolve the race: whichever UPDATE commits
-  // first flips the status, and the other's WHERE no longer matches.
+  // The lifecycle gate lives in the UPDATE's WHERE clause, not as a separate pre-check against
+  // `existing.status` above — that would read-then-write with a gap in between, letting two
+  // concurrent PATCHes both pass the check before either commits. Gating the row match itself
+  // makes Postgres's row lock resolve the race: whichever UPDATE commits first changes the
+  // status, and the other's WHERE no longer matches against the now-stale status it read.
   const [row] = await sql<WaiverRow[]>`
     UPDATE flight_authorizations.waivers
     SET
@@ -204,11 +216,15 @@ export async function updateWaiver(waiverId: string, patch: WaiverPatch): Promis
       rescinded_at = CASE WHEN ${rescinding} THEN now() ELSE rescinded_at END,
       updated_at = now()
     WHERE waiver_id = ${waiverId}
-      AND (NOT ${changingStatus} OR status <> 'rescinded')
+      AND (status = 'proposed' OR (status = 'approved' AND ${rescindingOnly}))
     RETURNING ${SELECT_COLUMNS}
   `;
   if (row) return mapRow(row);
-  // No row matched despite `existing` having just been found: the only way that happens is the
-  // status guard above blocking a status change on an already- (or concurrently-) rescinded row.
-  throw new RescindedIsTerminalError(waiverId);
+
+  // No row matched despite `existing` having just been found: the lifecycle gate above blocked
+  // it. Re-fetch to report the right reason — the record may have changed status concurrently
+  // between the read above and the UPDATE, so `existing.status` itself isn't trustworthy here.
+  const current = await getWaiverById(waiverId);
+  if (current?.status === 'rescinded') throw new RescindedIsTerminalError(waiverId);
+  throw new ApprovedIsImmutableError(waiverId);
 }

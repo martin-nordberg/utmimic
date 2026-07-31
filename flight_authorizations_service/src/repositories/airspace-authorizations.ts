@@ -75,10 +75,17 @@ export class PilotNotFoundError extends Error {
   }
 }
 
-/** Thrown when a `status` change is attempted on an authorization that's already `'rescinded'` — terminal, per the spec. */
+/** Thrown when any change is attempted on an authorization that's already `'rescinded'` — fully immutable, per the spec. */
 export class RescindedIsTerminalError extends Error {
   constructor(authorizationId: string) {
-    super(`Airspace authorization ${authorizationId} is rescinded and cannot change status further`);
+    super(`Airspace authorization ${authorizationId} is rescinded and cannot be modified further`);
+  }
+}
+
+/** Thrown when a patch other than a pure `status: 'rescinded'` transition is attempted on an already-`'approved'` authorization. */
+export class ApprovedIsImmutableError extends Error {
+  constructor(authorizationId: string) {
+    super(`Airspace authorization ${authorizationId} is approved and can only be rescinded, not otherwise modified`);
   }
 }
 
@@ -184,10 +191,13 @@ export async function getAirspaceAuthorizationById(authorizationId: string): Pro
 }
 
 /**
- * Applies a partial update to an authorization, or null if it doesn't exist. Throws
- * `RescindedIsTerminalError` if a `status` change is attempted on an already-`'rescinded'` row,
- * or `PilotNotFoundError` if a new `pilotId` doesn't exist under the authorization's (immutable)
- * owner. A transition to `'rescinded'` stamps `rescindedAt` server-side.
+ * Applies a partial update to an authorization, or null if it doesn't exist. Enforces a lifecycle
+ * gate: a `'proposed'` authorization accepts any patch; an `'approved'` one only accepts a pure
+ * `status: 'rescinded'` transition (no other field in the same patch) — throwing
+ * `ApprovedIsImmutableError` otherwise; a `'rescinded'` one accepts nothing at all — throwing
+ * `RescindedIsTerminalError`. Also throws `PilotNotFoundError` if a new `pilotId` doesn't exist
+ * under the authorization's (immutable) owner. A transition to `'rescinded'` stamps `rescindedAt`
+ * server-side.
  */
 export async function updateAirspaceAuthorization(
   authorizationId: string,
@@ -205,13 +215,17 @@ export async function updateAirspaceAuthorization(
   // COALESCE (as used for the other fields below) can't tell them apart.
   const pilotIdProvided = 'pilotId' in patch;
   const rescinding = patch.status === 'rescinded';
-  const changingStatus = patch.status !== undefined;
+  // Whether this patch touches anything besides `status` — the only kind of patch an
+  // 'approved' authorization still accepts is a pure rescind, nothing else.
+  const touchesOtherFields =
+    patch.maxAltitudeFt !== undefined || patch.startTime !== undefined || patch.endTime !== undefined || pilotIdProvided;
+  const rescindingOnly = rescinding && !touchesOtherFields;
 
-  // The "rescinded is terminal" guard lives in the UPDATE's WHERE clause, not as a separate
-  // pre-check against `existing.status` above — that would read-then-write with a gap in
-  // between, letting two concurrent PATCHes both pass the check before either commits. Gating
-  // the row match itself makes Postgres's row lock resolve the race: whichever UPDATE commits
-  // first flips the status, and the other's WHERE no longer matches.
+  // The lifecycle gate lives in the UPDATE's WHERE clause, not as a separate pre-check against
+  // `existing.status` above — that would read-then-write with a gap in between, letting two
+  // concurrent PATCHes both pass the check before either commits. Gating the row match itself
+  // makes Postgres's row lock resolve the race: whichever UPDATE commits first changes the
+  // status, and the other's WHERE no longer matches against the now-stale status it read.
   const [row] = await sql<AirspaceAuthorizationRow[]>`
     UPDATE flight_authorizations.airspace_authorizations
     SET
@@ -223,13 +237,17 @@ export async function updateAirspaceAuthorization(
       rescinded_at = CASE WHEN ${rescinding} THEN now() ELSE rescinded_at END,
       updated_at = now()
     WHERE authorization_id = ${authorizationId}
-      AND (NOT ${changingStatus} OR status <> 'rescinded')
+      AND (status = 'proposed' OR (status = 'approved' AND ${rescindingOnly}))
     RETURNING ${SELECT_COLUMNS}
   `;
   if (row) return mapRow(row);
-  // No row matched despite `existing` having just been found: the only way that happens is the
-  // status guard above blocking a status change on an already- (or concurrently-) rescinded row.
-  throw new RescindedIsTerminalError(authorizationId);
+
+  // No row matched despite `existing` having just been found: the lifecycle gate above blocked
+  // it. Re-fetch to report the right reason — the record may have changed status concurrently
+  // between the read above and the UPDATE, so `existing.status` itself isn't trustworthy here.
+  const current = await getAirspaceAuthorizationById(authorizationId);
+  if (current?.status === 'rescinded') throw new RescindedIsTerminalError(authorizationId);
+  throw new ApprovedIsImmutableError(authorizationId);
 }
 
 /** Authorization(s), of any status unless `status` narrows it, whose `area` contains the point and whose `[startTime, endTime]` covers `at`, optionally also requiring `maxAltitudeFt >= altitudeFt`. */

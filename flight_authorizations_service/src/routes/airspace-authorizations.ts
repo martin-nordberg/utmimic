@@ -2,6 +2,7 @@ import { createRoute, z } from '@hono/zod-openapi';
 import { DroneRegistrationsServiceUnavailableError } from '../drone-registrations-client';
 import { createRouter } from '../openapi-router';
 import {
+  ApprovedIsImmutableError,
   AuthorizationAlreadyExistsError,
   OwnerNotFoundError,
   PilotNotFoundError,
@@ -163,7 +164,7 @@ const patchAuthorizationRoute = createRoute({
     404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Authorization not found' },
     409: {
       content: { 'application/json': { schema: ErrorSchema } },
-      description: 'Authorization is rescinded and terminal',
+      description: "Authorization is rescinded (fully immutable) or approved and this patch isn't a pure rescind",
     },
     422: { content: { 'application/json': { schema: ErrorSchema } }, description: 'pilotId not found' },
     503: {
@@ -181,7 +182,9 @@ airspaceAuthorizationsRouter.openapi(patchAuthorizationRoute, async (c) => {
     if (!authorization) return c.json({ message: `Airspace authorization ${authorizationId} not found` }, 404);
     return c.json(authorization, 200);
   } catch (err) {
-    if (err instanceof RescindedIsTerminalError) return c.json({ message: err.message }, 409);
+    if (err instanceof RescindedIsTerminalError || err instanceof ApprovedIsImmutableError) {
+      return c.json({ message: err.message }, 409);
+    }
     if (err instanceof PilotNotFoundError) return c.json({ message: err.message }, 422);
     if (err instanceof DroneRegistrationsServiceUnavailableError) return c.json({ message: err.message }, 503);
     throw err;

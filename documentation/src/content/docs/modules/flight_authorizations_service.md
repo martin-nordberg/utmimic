@@ -81,7 +81,7 @@ CREATE INDEX ON flight_authorizations.airspace_authorizations (owner_id);
 CREATE INDEX ON flight_authorizations.airspace_authorizations USING GIST (area);
 ```
 
-`rescinded_at` is set by the service itself (to `now()`) the moment `status` transitions to `'rescinded'` via `PATCH` — it's not a client-supplied field (see [API](#api)). `'rescinded'` is terminal: once set, the service rejects any further `status` change on that row. This isn't expressible as a plain `CHECK` constraint (which only ever sees the new row, not the one it's replacing) — it's enforced in the service's update handler, not the schema.
+`rescinded_at` is set by the service itself (to `now()`) the moment `status` transitions to `'rescinded'` via `PATCH` — it's not a client-supplied field (see [API](#api)). `'rescinded'` is terminal: once set, the row is fully immutable — the service rejects any further `PATCH` at all, not just a `status` change. `'approved'` is also locked down short of that: the only `PATCH` it still accepts is a pure `{"status": "rescinded"}` with no other field in the same request — anything else (another field alone, or another field combined with the rescind) is rejected. This isn't expressible as a plain `CHECK` constraint (which only ever sees the new row, not the one it's replacing) — it's enforced in the service's update handler, not the schema.
 
 ### `flight_plans`
 
@@ -196,7 +196,7 @@ CREATE INDEX ON flight_authorizations.waivers (pilot_id);
 CREATE INDEX ON flight_authorizations.waivers (owner_id);
 ```
 
-Same `status`/`rescindedAt` lifecycle as `airspace_authorizations` (see the note above it): `rescinded_at` is stamped server-side on the `'rescinded'` transition, and `'rescinded'` is terminal, enforced in the service's update handler rather than the schema.
+Same `status`/`rescindedAt` lifecycle as `airspace_authorizations` (see the note above it): `rescinded_at` is stamped server-side on the `'rescinded'` transition, `'rescinded'` is fully immutable, and `'approved'` only accepts a pure rescind — all enforced in the service's update handler rather than the schema.
 
 Notes:
 
@@ -250,7 +250,7 @@ Domain routes are mounted under `/api/v1`; `/healthz`, `/openapi.json`, and `/do
 }
 ```
 
-A new authorization always starts `status: "proposed"` (not settable at creation); `PATCH .../{authorizationId}` with `{"status": "approved"}` or `{"status": "rescinded"}` transitions it — a transition to `"rescinded"` stamps `rescindedAt` server-side. `"rescinded"` is final: a `PATCH` attempting to change `status` away from `"rescinded"` is rejected (`409`). Whether `"approved"` can revert to `"proposed"` isn't decided — see [Open questions](#open-questions).
+A new authorization always starts `status: "proposed"` (not settable at creation). While `"proposed"`, any field is freely patchable, including combining a `{"status": "approved"}` or `{"status": "rescinded"}` transition with other field changes in the same request. Once `"approved"`, the record locks down to accepting only a pure `{"status": "rescinded"}` `PATCH` — no other field, and no other field combined with it — everything else gets `409`; there's no way to revert `"approved"` back to `"proposed"`. A transition to `"rescinded"` stamps `rescindedAt` server-side, and `"rescinded"` is final: any further `PATCH` at all, not just a `status` change, is rejected (`409`).
 
 `GET /airspace-authorizations/covering?lat={lat}&lon={lon}&at={timestamp}` returns any authorization(s), *of any status*, whose area contains the point, and whose `[startTime, endTime]` covers `at` (default now). `altitudeFt` and `status` are both optional: omit `altitudeFt` to match regardless of `maxAltitudeFt`, or pass it to require `maxAltitudeFt >= altitudeFt`; omit `status` to match any status, or pass `status=approved` (or `proposed`/`rescinded`) to narrow to just one — e.g. a consumer that only cares about actually-in-force authorizations would call it with `status=approved` rather than relying on a default, since covering by itself says nothing about whether the match is actually authorized.
 
@@ -334,7 +334,7 @@ A new authorization always starts `status: "proposed"` (not settable at creation
 }
 ```
 
-Exactly one of `pilotId`/`ownerId` must be set — `422` if both or neither are given. A new waiver always starts `status: "proposed"` (not settable at creation); `PATCH .../{waiverId}` with `{"status": "approved"}` or `{"status": "rescinded"}` transitions it, same rules as `airspace_authorizations`: a transition to `"rescinded"` stamps `rescindedAt` server-side, and `"rescinded"` is final (`409` on any further `status` change). `GET /waivers` filters — `pilotId`, `ownerId`, `waiverType`, `status`, and `activeAt` (default now, matching a waiver whose `[startTime, endTime]` covers it) — are all optional, same "omit to not filter on it" convention as the other list endpoints.
+Exactly one of `pilotId`/`ownerId` must be set — `422` if both or neither are given. A new waiver always starts `status: "proposed"` (not settable at creation), with the same lifecycle rules as `airspace_authorizations`: `"proposed"` is freely patchable, `"approved"` only accepts a pure `{"status": "rescinded"}` `PATCH` (`409` on anything else, including a rescind combined with another field), and `"rescinded"` accepts no `PATCH` at all (`409`) — `rescindedAt` is stamped server-side on the rescind transition. `GET /waivers` filters — `pilotId`, `ownerId`, `waiverType`, `status`, and `activeAt` (default now, matching a waiver whose `[startTime, endTime]` covers it) — are all optional, same "omit to not filter on it" convention as the other list endpoints.
 
 All request/response shapes are Zod schemas, and `@hono/zod-openapi` derives the OpenAPI document from them, served at `/openapi.json` with Swagger UI at `/docs` for manual exploration.
 
@@ -395,7 +395,6 @@ This is the first service in the project whose integration tests depend on a *si
 ## Open questions
 
 - Validation happens once, at write time — if Drone Registrations Service later changes or removes an owner/pilot/registration this service already validated, nothing here re-checks or gets notified.
-- Whether `"approved"` can revert to `"proposed"` (`"rescinded"` itself is decided: terminal, no way out — see [Data model](#data-model)) — applies to both `airspace_authorizations` and `waivers`.
 - Only four `waivers.waiver_type` values are modeled (Operations from a Moving Vehicle, Night Operations, Beyond Visual Line of Sight, Operations Over People) — not the full set of FAA Part 107 waiver categories. Adding another type means a migration to widen the `CHECK` constraint.
 - `waivers.conditions` is a single unstructured `text` field — fine for now, but it can't be queried/filtered on (e.g. "waivers with a max-altitude condition above X"). Revisit if that's ever needed.
 - Whether a flight plan should be allowed to exist with no `airspaceAuthorizationId` at all (e.g. representing a pending/unauthorized plan) — current design allows it, since the field is explicitly optional, but the implications (can it ever "fly" without one?) are Authorization Auto Coordination's concern, not this service's.

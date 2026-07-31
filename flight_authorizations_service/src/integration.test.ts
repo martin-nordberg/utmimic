@@ -273,6 +273,68 @@ describe('flight_authorizations_service (end-to-end)', () => {
       expect(afterRescinded.status).toBe(409);
     });
 
+    test('lifecycle immutability: proposed is freely patchable, approved only accepts a pure rescind, rescinded accepts nothing', async () => {
+      const created = await app.request('/api/v1/airspace-authorizations', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ ...authorization, authorizationId: 'fasit-auth-lifecycle' }),
+      });
+      expect(created.status).toBe(201);
+      const id = 'fasit-auth-lifecycle';
+
+      // proposed: any field, including combined with a status change, is patchable
+      const proposedPatch = await app.request(`/api/v1/airspace-authorizations/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ maxAltitudeFt: 300 }),
+      });
+      expect(proposedPatch.status).toBe(200);
+      expect((await jsonBody<{ maxAltitudeFt: number }>(proposedPatch)).maxAltitudeFt).toBe(300);
+
+      const approved = await app.request(`/api/v1/airspace-authorizations/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      expect(approved.status).toBe(200);
+
+      // approved: a non-status field alone is rejected
+      const approvedNonStatus = await app.request(`/api/v1/airspace-authorizations/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ maxAltitudeFt: 500 }),
+      });
+      expect(approvedNonStatus.status).toBe(409);
+
+      // approved: status + another field combined is rejected (not a *pure* rescind)
+      const approvedCombined = await app.request(`/api/v1/airspace-authorizations/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: 'rescinded', maxAltitudeFt: 500 }),
+      });
+      expect(approvedCombined.status).toBe(409);
+
+      // approved: maxAltitudeFt must still be untouched by either rejected attempt above
+      const stillApproved = await app.request(`/api/v1/airspace-authorizations/${id}`);
+      expect((await jsonBody<{ maxAltitudeFt: number; status: string }>(stillApproved)).maxAltitudeFt).toBe(300);
+
+      // approved: a pure rescind is the one patch still allowed
+      const rescinded = await app.request(`/api/v1/airspace-authorizations/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: 'rescinded' }),
+      });
+      expect(rescinded.status).toBe(200);
+
+      // rescinded: even a non-status field alone is rejected — fully immutable
+      const rescindedNonStatus = await app.request(`/api/v1/airspace-authorizations/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ maxAltitudeFt: 999 }),
+      });
+      expect(rescindedNonStatus.status).toBe(409);
+    });
+
     test('concurrent rescind PATCHes on the same authorization: exactly one wins, the other 409s', async () => {
       const created = await app.request('/api/v1/airspace-authorizations', {
         method: 'POST',
@@ -525,6 +587,68 @@ describe('flight_authorizations_service (end-to-end)', () => {
         body: JSON.stringify({ status: 'approved' }),
       });
       expect(afterRescinded.status).toBe(409);
+    });
+
+    test('lifecycle immutability: proposed is freely patchable, approved only accepts a pure rescind, rescinded accepts nothing', async () => {
+      const created = await app.request('/api/v1/waivers', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ ...ownerWaiver, waiverId: 'fasit-waiver-lifecycle' }),
+      });
+      expect(created.status).toBe(201);
+      const id = 'fasit-waiver-lifecycle';
+
+      // proposed: any field, including combined with a status change, is patchable
+      const proposedPatch = await app.request(`/api/v1/waivers/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ conditions: 'Updated while proposed.' }),
+      });
+      expect(proposedPatch.status).toBe(200);
+      expect((await jsonBody<{ conditions: string }>(proposedPatch)).conditions).toBe('Updated while proposed.');
+
+      const approved = await app.request(`/api/v1/waivers/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      expect(approved.status).toBe(200);
+
+      // approved: a non-status field alone is rejected
+      const approvedNonStatus = await app.request(`/api/v1/waivers/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ conditions: 'Should be rejected.' }),
+      });
+      expect(approvedNonStatus.status).toBe(409);
+
+      // approved: status + another field combined is rejected (not a *pure* rescind)
+      const approvedCombined = await app.request(`/api/v1/waivers/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: 'rescinded', conditions: 'Should also be rejected.' }),
+      });
+      expect(approvedCombined.status).toBe(409);
+
+      // approved: conditions must still be untouched by either rejected attempt above
+      const stillApproved = await app.request(`/api/v1/waivers/${id}`);
+      expect((await jsonBody<{ conditions: string }>(stillApproved)).conditions).toBe('Updated while proposed.');
+
+      // approved: a pure rescind is the one patch still allowed
+      const rescinded = await app.request(`/api/v1/waivers/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ status: 'rescinded' }),
+      });
+      expect(rescinded.status).toBe(200);
+
+      // rescinded: even a non-status field alone is rejected — fully immutable
+      const rescindedNonStatus = await app.request(`/api/v1/waivers/${id}`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ conditions: 'Should be rejected too.' }),
+      });
+      expect(rescindedNonStatus.status).toBe(409);
     });
 
     test('GET 404s for an unknown waiver', async () => {

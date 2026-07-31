@@ -2,6 +2,7 @@ import { createRoute, z } from '@hono/zod-openapi';
 import { DroneRegistrationsServiceUnavailableError } from '../drone-registrations-client';
 import { createRouter } from '../openapi-router';
 import {
+  ApprovedIsImmutableError,
   OwnerNotFoundError,
   PilotNotFoundError,
   RescindedIsTerminalError,
@@ -93,7 +94,10 @@ const patchWaiverRoute = createRoute({
   responses: {
     200: { content: { 'application/json': { schema: WaiverSchema } }, description: 'Updated waiver' },
     404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Waiver not found' },
-    409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Waiver is rescinded and terminal' },
+    409: {
+      content: { 'application/json': { schema: ErrorSchema } },
+      description: "Waiver is rescinded (fully immutable) or approved and this patch isn't a pure rescind",
+    },
   },
 });
 
@@ -105,7 +109,9 @@ waiversRouter.openapi(patchWaiverRoute, async (c) => {
     if (!waiver) return c.json({ message: `Waiver ${waiverId} not found` }, 404);
     return c.json(waiver, 200);
   } catch (err) {
-    if (err instanceof RescindedIsTerminalError) return c.json({ message: err.message }, 409);
+    if (err instanceof RescindedIsTerminalError || err instanceof ApprovedIsImmutableError) {
+      return c.json({ message: err.message }, 409);
+    }
     throw err;
   }
 });
