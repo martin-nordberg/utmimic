@@ -333,6 +333,73 @@ describe('drone_registrations_service (end-to-end)', () => {
     expect(overlapping.status).toBe(409);
   });
 
+  test("overlap check is inclusive: a touching boundary (startDate == another registration's endDate) counts as overlapping", async () => {
+    // Uses its own serialNumber, isolated from IT-SN-1's fixtures used elsewhere (including a
+    // later test that depends on an exact gap existing between it-reg-1 and it-reg-2).
+    const base = await app.request('/api/v1/drone-registrations', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        registrationId: 'it-reg-boundary-base',
+        serialNumber: 'IT-SN-BOUNDARY',
+        make: 'DJI',
+        modelNumber: 'Mavic 3',
+        ownerId: 'it-owner-org',
+        startDate: '2026-01-01',
+        endDate: '2026-06-30',
+      }),
+    });
+    expect(base.status).toBe(201);
+
+    const touchingStart = await app.request('/api/v1/drone-registrations', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        registrationId: 'it-reg-touching-start',
+        serialNumber: 'IT-SN-BOUNDARY',
+        make: 'DJI',
+        modelNumber: 'Mavic 3',
+        ownerId: 'it-owner-org',
+        startDate: '2026-06-30',
+        endDate: '2026-07-15',
+      }),
+    });
+    expect(touchingStart.status).toBe(409);
+
+    // The very next day (no shared date with it-reg-boundary-base) must succeed — proves the
+    // check isn't simply rejecting everything near the boundary.
+    const adjacentAfter = await app.request('/api/v1/drone-registrations', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        registrationId: 'it-reg-adjacent-after',
+        serialNumber: 'IT-SN-BOUNDARY',
+        make: 'DJI',
+        modelNumber: 'Mavic 3',
+        ownerId: 'it-owner-org',
+        startDate: '2026-07-01',
+        endDate: '2026-07-15',
+      }),
+    });
+    expect(adjacentAfter.status).toBe(201);
+
+    // Touches it-reg-adjacent-after's endDate (2026-07-15) from the other side.
+    const touchingEnd = await app.request('/api/v1/drone-registrations', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        registrationId: 'it-reg-touching-end',
+        serialNumber: 'IT-SN-BOUNDARY',
+        make: 'DJI',
+        modelNumber: 'Mavic 3',
+        ownerId: 'it-owner-org',
+        startDate: '2026-07-15',
+        endDate: '2026-08-01',
+      }),
+    });
+    expect(touchingEnd.status).toBe(409);
+  });
+
   test('rejects registering the same registrationId twice', async () => {
     const res = await app.request('/api/v1/drone-registrations', {
       method: 'POST',
