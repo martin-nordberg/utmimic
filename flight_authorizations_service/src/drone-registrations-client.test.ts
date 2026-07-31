@@ -119,4 +119,19 @@ describe('getRegistrationOwnerId', () => {
     await getRegistrationOwnerId('reg/../owners');
     expect(calls[0]).toContain('/api/v1/drone-registrations/reg%2F..%2Fowners');
   });
+
+  test('throws DroneRegistrationsServiceUnavailableError on a non-JSON 200 body, instead of a raw SyntaxError', async () => {
+    mockFetchResponse(new Response('not json', { status: 200 }));
+    await expect(getRegistrationOwnerId('reg-1')).rejects.toThrow(DroneRegistrationsServiceUnavailableError);
+  });
+
+  test('throws DroneRegistrationsServiceUnavailableError on a 200 body missing ownerId, instead of returning undefined', async () => {
+    mockFetchResponse(new Response(JSON.stringify({ notOwnerId: 'owner-9' }), { status: 200 }));
+    await expect(getRegistrationOwnerId('reg-1')).rejects.toThrow(DroneRegistrationsServiceUnavailableError);
+  });
+
+  test('throws DroneRegistrationsServiceUnavailableError on a 200 body with a non-string ownerId', async () => {
+    mockFetchResponse(new Response(JSON.stringify({ ownerId: 42 }), { status: 200 }));
+    await expect(getRegistrationOwnerId('reg-1')).rejects.toThrow(DroneRegistrationsServiceUnavailableError);
+  });
 });

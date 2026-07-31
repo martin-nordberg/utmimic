@@ -1,4 +1,8 @@
+import { z } from 'zod';
 import { config } from './config';
+
+/** Shape this service actually reads off a drone-registration lookup response — just enough to catch a malformed/schema-drifted body rather than silently treating a missing `ownerId` as `undefined`. */
+const RegistrationResponseSchema = z.object({ ownerId: z.string() });
 
 /**
  * Thrown when Drone Registrations Service can't be reached at all (a network error, or no
@@ -55,10 +59,28 @@ export async function pilotExistsStandalone(pilotId: string): Promise<boolean> {
   return res.status === 200;
 }
 
-/** The `ownerId` of the drone registration with this id, or `null` if no such registration exists (`GET /api/v1/drone-registrations/{registrationId}`). */
+/**
+ * The `ownerId` of the drone registration with this id, or `null` if no such registration exists
+ * (`GET /api/v1/drone-registrations/{registrationId}`). Throws
+ * `DroneRegistrationsServiceUnavailableError` — the same error used for network failures and
+ * `5xx`s — if the `2xx` response body isn't valid JSON or doesn't have the expected shape,
+ * rather than propagating a raw parse exception or silently returning `undefined` as if it were
+ * a real owner id.
+ */
 export async function getRegistrationOwnerId(registrationId: string): Promise<string | null> {
-  const res = await get(`/api/v1/drone-registrations/${encodeURIComponent(registrationId)}`);
+  const path = `/api/v1/drone-registrations/${encodeURIComponent(registrationId)}`;
+  const res = await get(path);
   if (res.status === 404) return null;
-  const body = (await res.json()) as { ownerId: string };
-  return body.ownerId;
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch (err) {
+    throw new DroneRegistrationsServiceUnavailableError(`${path} returned a non-JSON body: ${String(err)}`);
+  }
+  const parsed = RegistrationResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new DroneRegistrationsServiceUnavailableError(`${path} returned an unexpected response shape`);
+  }
+  return parsed.data.ownerId;
 }
