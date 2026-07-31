@@ -53,46 +53,58 @@ function mapRow(row: WindReportRow): WindReportRecord {
   };
 }
 
-/** Inserts observed wind reports for a zone, skipping duplicates by (recordedAt, reportId). */
+/**
+ * Inserts observed wind reports for a zone, skipping duplicates by (recordedAt, reportId). Runs
+ * the whole batch in one transaction — a failure partway through (e.g. a structurally invalid
+ * polygon a few reports in) rolls back the reports already inserted earlier in the same batch,
+ * rather than leaving them silently committed while the request as a whole reports 500.
+ */
 export async function insertObservedReports(
   zoneId: string,
   reports: WindReportInput[],
 ): Promise<WindReportRecord[]> {
-  const inserted: WindReportRow[] = [];
-  for (const report of reports) {
-    const rows = await sql<WindReportRow[]>`
-      INSERT INTO weather.wind_observed_reports (report_id, zone_id, recorded_at, state, geom)
-      VALUES (
-        ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
-        ${geomFromGeoJson(report.polygon)}
-      )
-      ON CONFLICT (recorded_at, report_id) DO NOTHING
-      RETURNING report_id, zone_id, recorded_at, state, ${polygonSelect}, ingested_at
-    `;
-    inserted.push(...rows);
-  }
-  return inserted.map(mapRow);
+  return sql.begin(async (tx) => {
+    const inserted: WindReportRow[] = [];
+    for (const report of reports) {
+      const rows = await tx<WindReportRow[]>`
+        INSERT INTO weather.wind_observed_reports (report_id, zone_id, recorded_at, state, geom)
+        VALUES (
+          ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
+          ${geomFromGeoJson(report.polygon)}
+        )
+        ON CONFLICT (recorded_at, report_id) DO NOTHING
+        RETURNING report_id, zone_id, recorded_at, state, ${polygonSelect}, ingested_at
+      `;
+      inserted.push(...rows);
+    }
+    return inserted.map(mapRow);
+  });
 }
 
-/** Inserts forecast wind reports for a zone, skipping duplicates by (recordedAt, reportId). */
+/**
+ * Inserts forecast wind reports for a zone, skipping duplicates by (recordedAt, reportId). Runs
+ * the whole batch in one transaction — see {@link insertObservedReports}.
+ */
 export async function insertForecastReports(
   zoneId: string,
   reports: WindReportInput[],
 ): Promise<WindReportRecord[]> {
-  const inserted: WindReportRow[] = [];
-  for (const report of reports) {
-    const rows = await sql<WindReportRow[]>`
-      INSERT INTO weather.wind_forecast_reports (report_id, zone_id, recorded_at, state, geom)
-      VALUES (
-        ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
-        ${geomFromGeoJson(report.polygon)}
-      )
-      ON CONFLICT (recorded_at, report_id) DO NOTHING
-      RETURNING report_id, zone_id, recorded_at, state, ${polygonSelect}, ingested_at
-    `;
-    inserted.push(...rows);
-  }
-  return inserted.map(mapRow);
+  return sql.begin(async (tx) => {
+    const inserted: WindReportRow[] = [];
+    for (const report of reports) {
+      const rows = await tx<WindReportRow[]>`
+        INSERT INTO weather.wind_forecast_reports (report_id, zone_id, recorded_at, state, geom)
+        VALUES (
+          ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
+          ${geomFromGeoJson(report.polygon)}
+        )
+        ON CONFLICT (recorded_at, report_id) DO NOTHING
+        RETURNING report_id, zone_id, recorded_at, state, ${polygonSelect}, ingested_at
+      `;
+      inserted.push(...rows);
+    }
+    return inserted.map(mapRow);
+  });
 }
 
 /**

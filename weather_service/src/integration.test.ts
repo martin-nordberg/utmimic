@@ -1,7 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { app } from './app';
 import { config } from './config';
-import { sql } from './db';
 import { resetSchema } from './test-support/reset-db';
 
 const polygon = {
@@ -26,12 +25,12 @@ async function jsonBody<T = unknown>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+// Doesn't close `sql` in an afterAll: it's a module-level singleton shared with the
+// repository-level test files (visibility-zones.test.ts, wind-zones.test.ts) across this whole
+// test run, and closing it here would break whichever of those happens to run afterward. Bun's
+// test runner exits cleanly regardless of the still-open pool.
 beforeAll(async () => {
   await resetSchema();
-});
-
-afterAll(async () => {
-  await sql.close();
 });
 
 describe('weather_service (end-to-end)', () => {

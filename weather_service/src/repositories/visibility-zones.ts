@@ -57,46 +57,58 @@ function mapRow(row: VisibilityReportRow): VisibilityReportRecord {
   };
 }
 
-/** Inserts observed visibility reports for a zone, skipping duplicates by (recordedAt, reportId). */
+/**
+ * Inserts observed visibility reports for a zone, skipping duplicates by (recordedAt, reportId).
+ * Runs the whole batch in one transaction — a failure partway through (e.g. a structurally
+ * invalid polygon a few reports in) rolls back the reports already inserted earlier in the same
+ * batch, rather than leaving them silently committed while the request as a whole reports 500.
+ */
 export async function insertObservedReports(
   zoneId: string,
   reports: VisibilityReportInput[],
 ): Promise<VisibilityReportRecord[]> {
-  const inserted: VisibilityReportRow[] = [];
-  for (const report of reports) {
-    const rows = await sql<VisibilityReportRow[]>`
-      INSERT INTO weather.visibility_observed_reports (report_id, zone_id, recorded_at, state, ceiling_ft, geom)
-      VALUES (
-        ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
-        ${report.ceilingFt ?? null}, ${geomFromGeoJson(report.polygon)}
-      )
-      ON CONFLICT (recorded_at, report_id) DO NOTHING
-      RETURNING report_id, zone_id, recorded_at, state, ceiling_ft, ${polygonSelect}, ingested_at
-    `;
-    inserted.push(...rows);
-  }
-  return inserted.map(mapRow);
+  return sql.begin(async (tx) => {
+    const inserted: VisibilityReportRow[] = [];
+    for (const report of reports) {
+      const rows = await tx<VisibilityReportRow[]>`
+        INSERT INTO weather.visibility_observed_reports (report_id, zone_id, recorded_at, state, ceiling_ft, geom)
+        VALUES (
+          ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
+          ${report.ceilingFt ?? null}, ${geomFromGeoJson(report.polygon)}
+        )
+        ON CONFLICT (recorded_at, report_id) DO NOTHING
+        RETURNING report_id, zone_id, recorded_at, state, ceiling_ft, ${polygonSelect}, ingested_at
+      `;
+      inserted.push(...rows);
+    }
+    return inserted.map(mapRow);
+  });
 }
 
-/** Inserts forecast visibility reports for a zone, skipping duplicates by (recordedAt, reportId). */
+/**
+ * Inserts forecast visibility reports for a zone, skipping duplicates by (recordedAt, reportId).
+ * Runs the whole batch in one transaction — see {@link insertObservedReports}.
+ */
 export async function insertForecastReports(
   zoneId: string,
   reports: VisibilityReportInput[],
 ): Promise<VisibilityReportRecord[]> {
-  const inserted: VisibilityReportRow[] = [];
-  for (const report of reports) {
-    const rows = await sql<VisibilityReportRow[]>`
-      INSERT INTO weather.visibility_forecast_reports (report_id, zone_id, recorded_at, state, ceiling_ft, geom)
-      VALUES (
-        ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
-        ${report.ceilingFt ?? null}, ${geomFromGeoJson(report.polygon)}
-      )
-      ON CONFLICT (recorded_at, report_id) DO NOTHING
-      RETURNING report_id, zone_id, recorded_at, state, ceiling_ft, ${polygonSelect}, ingested_at
-    `;
-    inserted.push(...rows);
-  }
-  return inserted.map(mapRow);
+  return sql.begin(async (tx) => {
+    const inserted: VisibilityReportRow[] = [];
+    for (const report of reports) {
+      const rows = await tx<VisibilityReportRow[]>`
+        INSERT INTO weather.visibility_forecast_reports (report_id, zone_id, recorded_at, state, ceiling_ft, geom)
+        VALUES (
+          ${report.reportId}, ${zoneId}, ${report.recordedAt}::timestamptz, ${report.state},
+          ${report.ceilingFt ?? null}, ${geomFromGeoJson(report.polygon)}
+        )
+        ON CONFLICT (recorded_at, report_id) DO NOTHING
+        RETURNING report_id, zone_id, recorded_at, state, ceiling_ft, ${polygonSelect}, ingested_at
+      `;
+      inserted.push(...rows);
+    }
+    return inserted.map(mapRow);
+  });
 }
 
 /**
