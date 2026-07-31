@@ -334,6 +334,46 @@ describe('weather_service (end-to-end)', () => {
       );
       expect(bothRes.status).toBe(400);
     });
+
+    test('GET /forecast requires at', async () => {
+      const res = await app.request('/api/v1/wind-zones/forecast');
+      expect(res.status).toBe(400);
+    });
+
+    test('forecast reports resolve to the one closest to the requested at', async () => {
+      const near = { reportId: 'it-wfc-near', recordedAt: minutes(240), state: 'slight_winds', polygon };
+      const far = { reportId: 'it-wfc-far', recordedAt: minutes(360), state: 'dangerous_winds', polygon };
+
+      for (const report of [near, far]) {
+        const res = await app.request('/api/v1/wind-zones/it-wind-1/forecast-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(report),
+        });
+        expect(res.status).toBe(201);
+      }
+
+      const at = minutes(245);
+      const res = await app.request(`/api/v1/wind-zones/forecast?at=${encodeURIComponent(at)}`);
+      const forecasts = await jsonBody<{ zoneId: string; reportId: string }[]>(res);
+      const forecastForZone = forecasts.find((f) => f.zoneId === 'it-wind-1');
+      expect(forecastForZone?.reportId).toBe('it-wfc-near');
+    });
+
+    test('forecast/current filters by extent intersection and requires at', async () => {
+      const noAtRes = await app.request(
+        '/api/v1/wind-zones/forecast/current?lat1=47.60&lon1=-122.43&lat2=47.64&lon2=-122.39',
+      );
+      expect(noAtRes.status).toBe(400);
+
+      const at = minutes(245);
+      const withAtRes = await app.request(
+        `/api/v1/wind-zones/forecast/current?lat1=47.60&lon1=-122.43&lat2=47.64&lon2=-122.39&at=${encodeURIComponent(at)}`,
+      );
+      expect(withAtRes.status).toBe(200);
+      const zoneIds = (await jsonBody<{ zoneId: string }[]>(withAtRes)).map((r) => r.zoneId);
+      expect(zoneIds).toContain('it-wind-1');
+    });
   });
 
   describe('sun times', () => {
