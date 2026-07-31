@@ -176,6 +176,41 @@ describe('drone_registrations_service (end-to-end)', () => {
     expect(unknown.status).toBe(404);
   });
 
+  test('deletes a pilot, then 404s deleting it again or an unknown pilot', async () => {
+    const created = await app.request('/api/v1/owners/it-owner-org/pilots', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        pilotId: 'it-pilot-delete-me',
+        name: 'To Be Deleted',
+        phoneNumber: '+1-555-0104',
+        licenseNumber: 'REM-2222222',
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const deleted = await app.request('/api/v1/owners/it-owner-org/pilots/it-pilot-delete-me', { method: 'DELETE' });
+    expect(deleted.status).toBe(204);
+
+    const deletedAgain = await app.request('/api/v1/owners/it-owner-org/pilots/it-pilot-delete-me', {
+      method: 'DELETE',
+    });
+    expect(deletedAgain.status).toBe(404);
+
+    const unknownPilot = await app.request('/api/v1/owners/it-owner-org/pilots/no-such-pilot', { method: 'DELETE' });
+    expect(unknownPilot.status).toBe(404);
+
+    const wrongOwner = await app.request('/api/v1/owners/it-owner-individual/pilots/it-pilot-1', {
+      method: 'DELETE',
+    });
+    expect(wrongOwner.status).toBe(404);
+
+    // it-pilot-1 (a different pilot, under the correct owner) must still exist — the wrong-owner
+    // DELETE attempt above must not have deleted it.
+    const stillThere = await app.request('/api/v1/pilots/it-pilot-1');
+    expect(stillThere.status).toBe(200);
+  });
+
   test('creates two non-overlapping registrations for the same serial number, and rejects an overlapping third', async () => {
     const first = await app.request('/api/v1/drone-registrations', {
       method: 'POST',

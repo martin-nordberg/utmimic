@@ -139,10 +139,12 @@ export async function updatePilot(ownerId: string, pilotId: string, patch: Pilot
   return row ? mapRow(row) : null;
 }
 
-/** Deletes a pilot, scoped to its owning organization, if one matches. */
-export async function deletePilot(ownerId: string, pilotId: string): Promise<void> {
-  await sql`
+/** Deletes a pilot, scoped to its owning organization. Returns whether a row actually matched and was deleted. */
+export async function deletePilot(ownerId: string, pilotId: string): Promise<boolean> {
+  const [row] = await sql<{ pilot_id: string }[]>`
     DELETE FROM drone_registrations.pilots
     WHERE pilot_id = ${pilotId} AND organization_owner_id = ${ownerId}
+    RETURNING pilot_id
   `;
+  return row !== undefined;
 }

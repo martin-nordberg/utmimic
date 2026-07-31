@@ -133,12 +133,14 @@ const deletePilotRoute = createRoute({
   request: { params: PilotParamsSchema },
   responses: {
     204: { description: 'Pilot removed' },
+    404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Pilot not found' },
   },
 });
 
 pilotsRouter.openapi(deletePilotRoute, async (c) => {
   const { ownerId, pilotId } = c.req.valid('param');
-  await deletePilot(ownerId, pilotId);
+  const deleted = await deletePilot(ownerId, pilotId);
+  if (!deleted) return c.json({ message: `Pilot ${pilotId} not found` }, 404);
   return c.body(null, 204);
 });
 
