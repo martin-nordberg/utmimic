@@ -505,6 +505,49 @@ describe('flight_authorizations_service (end-to-end)', () => {
       const miss = await app.request('/api/v1/flight-plans/intersecting?minLat=10&minLon=10&maxLat=11&maxLon=11');
       expect((await jsonBody<unknown[]>(miss)).length).toBe(0);
     });
+
+    test('intersecting altitudeFt band is exclusive of altitudeMinFt and inclusive of altitudeMaxFt', async () => {
+      // A dedicated single-waypoint plan, rather than reusing waypointsPlan (which has a second
+      // waypoint with a different altitude band that would otherwise also satisfy some of these
+      // altitudeFt values and mask the boundary behavior being tested here).
+      const altitudeBandPlan = {
+        flightPlanId: 'fasit-plan-altitude-band',
+        planType: 'waypoints',
+        ownerId: 'fasit-owner-1',
+        registrationId: 'fasit-reg-1',
+        pilotId: null,
+        airspaceAuthorizationId: null,
+        startTime: '2026-08-01T18:00:00.000Z',
+        endTime: '2026-08-01T19:00:00.000Z',
+        waypoints: [{ latitude: 47.9, longitude: -122.9, altitudeMinFt: 250, altitudeMaxFt: 350, radiusMeters: 50 }],
+      };
+      const created = await app.request('/api/v1/flight-plans', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify(altitudeBandPlan),
+      });
+      expect(created.status).toBe(201);
+
+      const bbox = 'minLat=47.5&minLon=-123.5&maxLat=48.3&maxLon=-122.2';
+
+      const atMin = await app.request(`/api/v1/flight-plans/intersecting?${bbox}&altitudeFt=250`);
+      expect(atMin.status).toBe(200);
+      const atMinIds = (await jsonBody<{ flightPlanId: string }[]>(atMin)).map((p) => p.flightPlanId);
+      expect(atMinIds).not.toContain(altitudeBandPlan.flightPlanId);
+
+      const atMax = await app.request(`/api/v1/flight-plans/intersecting?${bbox}&altitudeFt=350`);
+      expect(atMax.status).toBe(200);
+      const atMaxIds = (await jsonBody<{ flightPlanId: string }[]>(atMax)).map((p) => p.flightPlanId);
+      expect(atMaxIds).toContain(altitudeBandPlan.flightPlanId);
+
+      const justAboveMin = await app.request(`/api/v1/flight-plans/intersecting?${bbox}&altitudeFt=250.1`);
+      const justAboveMinIds = (await jsonBody<{ flightPlanId: string }[]>(justAboveMin)).map((p) => p.flightPlanId);
+      expect(justAboveMinIds).toContain(altitudeBandPlan.flightPlanId);
+
+      const justAboveMax = await app.request(`/api/v1/flight-plans/intersecting?${bbox}&altitudeFt=350.1`);
+      const justAboveMaxIds = (await jsonBody<{ flightPlanId: string }[]>(justAboveMax)).map((p) => p.flightPlanId);
+      expect(justAboveMaxIds).not.toContain(altitudeBandPlan.flightPlanId);
+    });
   });
 
   describe('waivers', () => {
