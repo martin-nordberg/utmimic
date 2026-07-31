@@ -21,7 +21,9 @@ const putProfileRoute = createRoute({
       content: { 'application/json': { schema: SensorProfileSchema } },
       description: 'Profile created or replaced',
     },
+    400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Validation failed' },
     404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Sensor not found' },
+    415: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Content-Type must be application/json' },
   },
 });
 

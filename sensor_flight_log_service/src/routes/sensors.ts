@@ -22,7 +22,9 @@ const createSensorRoute = createRoute({
   },
   responses: {
     201: { content: { 'application/json': { schema: SensorSchema } }, description: 'Sensor registered' },
+    400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Validation failed' },
     409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Sensor already exists' },
+    415: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Content-Type must be application/json' },
   },
 });
 
@@ -81,7 +83,9 @@ const patchSensorRoute = createRoute({
   },
   responses: {
     200: { content: { 'application/json': { schema: SensorSchema } }, description: 'Updated sensor' },
+    400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Validation failed' },
     404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Sensor not found' },
+    415: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Content-Type must be application/json' },
   },
 });
 

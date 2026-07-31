@@ -35,7 +35,9 @@ const ingestRoute = createRoute({
       content: { 'application/json': { schema: z.array(PositionReportSchema) } },
       description: 'Accepted position reports (newly inserted only; duplicates from idempotent retries are omitted)',
     },
+    400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Validation failed' },
     404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'One or more sensorIds are unknown' },
+    415: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Content-Type must be application/json' },
   },
 });
 
