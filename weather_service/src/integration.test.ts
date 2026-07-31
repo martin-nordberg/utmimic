@@ -212,6 +212,91 @@ describe('weather_service (end-to-end)', () => {
       const forecastForZone = forecasts.find((f) => f.zoneId === 'it-vis-fresh');
       expect(forecastForZone?.reportId).toBe('it-vfc-near');
     });
+
+    test('GET /{zoneId}/observed-reports supports from/to/limit range filtering and an at instant', async () => {
+      const zoneId = 'it-vis-history';
+      const reports = [
+        { reportId: 'it-vobs-hist-1', recordedAt: minutes(-30), state: 'clear', polygon },
+        { reportId: 'it-vobs-hist-2', recordedAt: minutes(-20), state: 'cloudy', polygon },
+        { reportId: 'it-vobs-hist-3', recordedAt: minutes(-10), state: 'rainy', polygon },
+      ];
+      for (const report of reports) {
+        const res = await app.request(`/api/v1/visibility-zones/${zoneId}/observed-reports`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(report),
+        });
+        expect(res.status).toBe(201);
+      }
+
+      const all = await app.request(`/api/v1/visibility-zones/${zoneId}/observed-reports`);
+      expect(all.status).toBe(200);
+      const allIds = (await jsonBody<{ reportId: string }[]>(all)).map((r) => r.reportId);
+      expect(allIds).toEqual(['it-vobs-hist-1', 'it-vobs-hist-2', 'it-vobs-hist-3']);
+
+      const fromOnly = await app.request(
+        `/api/v1/visibility-zones/${zoneId}/observed-reports?from=${encodeURIComponent(minutes(-25))}`,
+      );
+      const fromIds = (await jsonBody<{ reportId: string }[]>(fromOnly)).map((r) => r.reportId);
+      expect(fromIds).toEqual(['it-vobs-hist-2', 'it-vobs-hist-3']);
+
+      const toOnly = await app.request(
+        `/api/v1/visibility-zones/${zoneId}/observed-reports?to=${encodeURIComponent(minutes(-15))}`,
+      );
+      const toIds = (await jsonBody<{ reportId: string }[]>(toOnly)).map((r) => r.reportId);
+      expect(toIds).toEqual(['it-vobs-hist-1', 'it-vobs-hist-2']);
+
+      const fromAndTo = await app.request(
+        `/api/v1/visibility-zones/${zoneId}/observed-reports?from=${encodeURIComponent(minutes(-25))}&to=${encodeURIComponent(minutes(-15))}`,
+      );
+      const fromAndToIds = (await jsonBody<{ reportId: string }[]>(fromAndTo)).map((r) => r.reportId);
+      expect(fromAndToIds).toEqual(['it-vobs-hist-2']);
+
+      const limited = await app.request(`/api/v1/visibility-zones/${zoneId}/observed-reports?limit=1`);
+      const limitedIds = (await jsonBody<{ reportId: string }[]>(limited)).map((r) => r.reportId);
+      expect(limitedIds).toEqual(['it-vobs-hist-1']);
+
+      // at= resolves the most recent report at-or-before that instant, not the closest overall.
+      const atInstant = await app.request(
+        `/api/v1/visibility-zones/${zoneId}/observed-reports?at=${encodeURIComponent(minutes(-15))}`,
+      );
+      const atIds = (await jsonBody<{ reportId: string }[]>(atInstant)).map((r) => r.reportId);
+      expect(atIds).toEqual(['it-vobs-hist-2']);
+    });
+
+    test('GET /{zoneId}/forecast-reports supports from/to/limit range filtering and an at instant (closest match)', async () => {
+      const zoneId = 'it-vis-history';
+      const forecasts = [
+        { reportId: 'it-vfc-hist-1', recordedAt: minutes(60), state: 'clear', polygon },
+        { reportId: 'it-vfc-hist-2', recordedAt: minutes(120), state: 'cloudy', polygon },
+        { reportId: 'it-vfc-hist-3', recordedAt: minutes(180), state: 'rainy', polygon },
+      ];
+      for (const report of forecasts) {
+        const res = await app.request(`/api/v1/visibility-zones/${zoneId}/forecast-reports`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(report),
+        });
+        expect(res.status).toBe(201);
+      }
+
+      const all = await app.request(`/api/v1/visibility-zones/${zoneId}/forecast-reports`);
+      expect(all.status).toBe(200);
+      const allIds = (await jsonBody<{ reportId: string }[]>(all)).map((r) => r.reportId);
+      expect(allIds).toEqual(['it-vfc-hist-1', 'it-vfc-hist-2', 'it-vfc-hist-3']);
+
+      const limited = await app.request(`/api/v1/visibility-zones/${zoneId}/forecast-reports?limit=2`);
+      const limitedIds = (await jsonBody<{ reportId: string }[]>(limited)).map((r) => r.reportId);
+      expect(limitedIds).toEqual(['it-vfc-hist-1', 'it-vfc-hist-2']);
+
+      // Closest to minutes(130) is minutes(120) (10 min away) over minutes(180) (50 min away) —
+      // unlike observed history's at=, this isn't an at-or-before cutoff.
+      const closest = await app.request(
+        `/api/v1/visibility-zones/${zoneId}/forecast-reports?at=${encodeURIComponent(minutes(130))}`,
+      );
+      const closestIds = (await jsonBody<{ reportId: string }[]>(closest)).map((r) => r.reportId);
+      expect(closestIds).toEqual(['it-vfc-hist-2']);
+    });
   });
 
   describe('wind zones (smoke test — structurally identical to visibility, minus ceilingFt)', () => {
