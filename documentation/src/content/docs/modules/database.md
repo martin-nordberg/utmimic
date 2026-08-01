@@ -35,7 +35,7 @@ Credentials are supplied via plain environment variables (`POSTGRES_PASSWORD`, a
 
 ## Networking
 
-The container publishes PostgreSQL's default port, `5432`, on the Kubuntu deployment host. Other UTMimic modules connect to it as `<host>:5432` rather than over a Docker-internal network, since not every module is guaranteed to be containerized on the same host/network.
+The container publishes PostgreSQL's default port, `5432`, on the Kubuntu deployment host. Under the [deployment module](/modules/deployment/)'s Docker Compose stack, the web services connect to it over Compose's internal network (service name `database`) rather than the host port, since the whole stack is deployed together on one host. The host port `5432` stays published for anything running outside that Compose network — a developer's local tooling, or a module not yet folded into the stack.
 
 ## Development and test instance
 

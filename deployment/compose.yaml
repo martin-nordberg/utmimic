@@ -1,0 +1,108 @@
+name: utmimic
+
+networks:
+  utmimic:
+    driver: bridge
+
+volumes:
+  utmimic-database-data:
+    name: utmimic-database-data
+
+services:
+  database:
+    image: mnserver.internal:5000/utmimic-database:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      PGDATA: /pgdata/data
+    volumes:
+      - utmimic-database-data:/pgdata
+    ports:
+      - "5432:5432"
+    networks:
+      - utmimic
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  weather_service:
+    image: mnserver.internal:5000/utmimic-weather-service:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB:-postgres}
+      PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8000:8000"
+    networks:
+      - utmimic
+    depends_on:
+      database:
+        condition: service_healthy
+
+  drone_registrations_service:
+    image: mnserver.internal:5000/utmimic-drone-registrations-service:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB:-postgres}
+      PORT: 8001
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8001:8001"
+    networks:
+      - utmimic
+    depends_on:
+      database:
+        condition: service_healthy
+
+  flight_authorizations_service:
+    image: mnserver.internal:5000/utmimic-flight-authorizations-service:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB:-postgres}
+      PORT: 8002
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DRONE_REGISTRATIONS_SERVICE_URL: http://drone_registrations_service:8001
+    ports:
+      - "8002:8002"
+    networks:
+      - utmimic
+    depends_on:
+      database:
+        condition: service_healthy
+      drone_registrations_service:
+        condition: service_started
+
+  live_flight_log_service:
+    image: mnserver.internal:5000/utmimic-live-flight-log-service:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB:-postgres}
+      PORT: 8003
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8003:8003"
+    networks:
+      - utmimic
+    depends_on:
+      database:
+        condition: service_healthy
+
+  sensor_flight_log_service:
+    image: mnserver.internal:5000/utmimic-sensor-flight-log-service:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB:-postgres}
+      PORT: 8004
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8004:8004"
+    networks:
+      - utmimic
+    depends_on:
+      database:
+        condition: service_healthy

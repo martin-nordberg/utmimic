@@ -21,6 +21,7 @@ export default defineConfig({
 					label: 'Modules',
 					items: [
 						{ label: 'Database', slug: 'modules/database' },
+						{ label: 'Deployment', slug: 'modules/deployment' },
 						{ label: 'Documentation', slug: 'modules/documentation' },
 						{ label: 'Drone Registrations Service', slug: 'modules/drone_registrations_service' },
 						{ label: 'Flight Authorizations Service', slug: 'modules/flight_authorizations_service' },
